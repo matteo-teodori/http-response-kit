@@ -1,0 +1,49 @@
+{
+  "name": "http-response-kit",
+  "version": "1.0.0",
+  "description": "A professional HTTP error and response formatting library for Node.js",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "http",
+    "error",
+    "response",
+    "api",
+    "rest",
+    "status-code",
+    "express",
+    "nodejs",
+    "typescript"
+  ],
+  "author": "Matteo Teodori",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.2.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/matteo-teodori/http-response-kit"
+  }
+}
