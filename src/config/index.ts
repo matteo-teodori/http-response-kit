@@ -9,7 +9,7 @@ import type { LibraryConfig } from '../types';
  * Default library configuration
  */
 const defaultConfig: LibraryConfig = {
-    isDevelopment: process.env.NODE_ENV === 'development',
+    isDevelopment: undefined,
     includeTimestamp: true,
     customMessages: {},
     responseTransformer: undefined,
@@ -38,13 +38,17 @@ let currentConfig: LibraryConfig = { ...defaultConfig };
  * ```
  */
 export function configure(config: Partial<LibraryConfig>): void {
-    currentConfig = { ...currentConfig, ...config };
+    currentConfig = {
+        ...currentConfig,
+        ...config,
+        customMessages: { ...currentConfig.customMessages, ...config.customMessages },
+    };
 }
 
 /**
  * Get the current library configuration
  */
-export function getConfig(): LibraryConfig {
+export function getConfig(): Readonly<LibraryConfig> {
     return { ...currentConfig };
 }
 
@@ -52,14 +56,14 @@ export function getConfig(): LibraryConfig {
  * Reset configuration to defaults
  */
 export function resetConfig(): void {
-    currentConfig = { ...defaultConfig };
+    currentConfig = { ...defaultConfig, customMessages: {} };
 }
 
 /**
  * Check if running in development mode
  */
 export function isDevelopment(): boolean {
-    return currentConfig.isDevelopment ?? false;
+    return currentConfig.isDevelopment ?? process.env.NODE_ENV === 'development';
 }
 
 /**

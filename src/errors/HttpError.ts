@@ -4,6 +4,7 @@
  */
 
 import type { HttpErrorOptions } from '../types';
+import { HttpClientErrorCode, HttpServerErrorCode } from '../constants/status-codes';
 import { getErrorDefinition } from '../constants/error-definitions';
 import { getCustomMessage } from '../config';
 
@@ -41,6 +42,9 @@ export class HttpError extends Error {
     /** Human-readable error title */
     readonly title: string;
 
+    /** Default error description from definition */
+    readonly details: string;
+
     /** Additional error metadata */
     readonly metadata?: Record<string, unknown>;
 
@@ -56,7 +60,7 @@ export class HttpError extends Error {
      * @param code - HTTP status code (e.g., 404, 500)
      * @param options - Optional configuration
      */
-    constructor(code: number, options: HttpErrorOptions = {}) {
+    constructor(code: HttpClientErrorCode | HttpServerErrorCode | number, options: HttpErrorOptions = {}) {
         const errorInfo = getErrorDefinition(code);
         const customMessage = getCustomMessage(code);
         const finalMessage = options.message ?? customMessage ?? errorInfo.details;
@@ -67,6 +71,7 @@ export class HttpError extends Error {
         this.code = errorInfo.code;
         this.type = errorInfo.type;
         this.title = errorInfo.title;
+        this.details = errorInfo.details;
         this.metadata = options.metadata;
         this.cause = options.cause;
         this.retryAfter = options.retryAfter ?? errorInfo.retryAfter;
@@ -87,6 +92,7 @@ export class HttpError extends Error {
             type: this.type,
             title: this.title,
             message: this.message,
+            details: this.details,
             metadata: this.metadata,
             retryAfter: this.retryAfter,
         };
@@ -310,11 +316,25 @@ export class HttpError extends Error {
     // ========================================================================
 
     /**
+     * Create an HttpError from a status code with default definition values.
+     * Semantic alias for `new HttpError(code)`.
+     */
+    static fromStatus(code: HttpClientErrorCode | HttpServerErrorCode | number, options?: HttpErrorOptions): HttpError {
+        return new HttpError(code, options);
+    }
+
+    /**
      * Create an HttpError from an unknown error
      */
     static fromError(error: unknown, fallbackCode = 500): HttpError {
         if (error instanceof HttpError) {
             return error;
+        }
+
+        if (fallbackCode < 400 || fallbackCode > 599) {
+            throw new RangeError(
+                `fallbackCode must be between 400 and 599, got ${fallbackCode}`
+            );
         }
 
         if (error instanceof Error) {

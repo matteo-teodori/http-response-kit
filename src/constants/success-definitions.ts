@@ -59,7 +59,9 @@ export const HttpSuccessDefinitions: Record<number, HttpSuccessInfo> = {
         code: 226,
         description: 'The server has fulfilled a GET request and the response is a representation of the result of one or more instance-manipulations.',
     },
-};
+} as const;
+
+Object.freeze(HttpSuccessDefinitions);
 
 /**
  * Complete definitions for HTTP 3xx Redirect codes
@@ -104,7 +106,9 @@ export const HttpRedirectDefinitions: Record<number, HttpSuccessInfo> = {
         code: 308,
         description: 'The request and all future requests should be repeated using another URI.',
     },
-};
+} as const;
+
+Object.freeze(HttpRedirectDefinitions);
 
 /**
  * Complete definitions for HTTP 1xx Informational codes
@@ -129,16 +133,26 @@ export const HttpInfoDefinitions: Record<number, HttpSuccessInfo> = {
         code: 103,
         description: 'The server is sending some response headers before the final response.',
     },
-};
+} as const;
+
+Object.freeze(HttpInfoDefinitions);
 
 /**
  * Get success definition by status code
  */
 export function getSuccessDefinition(code: number): HttpSuccessInfo {
-    return (
+    const definedInfo =
         HttpSuccessDefinitions[code] ||
         HttpRedirectDefinitions[code] ||
-        HttpInfoDefinitions[code] ||
-        HttpSuccessDefinitions[200]
-    );
+        HttpInfoDefinitions[code];
+
+    if (definedInfo) {
+        return definedInfo;
+    }
+
+    // Preserve the original code but provide a generic fallback definition
+    return {
+        code: code,
+        description: 'The request was processed with a non-standard status code.',
+    };
 }

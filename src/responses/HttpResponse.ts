@@ -3,7 +3,7 @@
  * @module responses/HttpResponse
  */
 
-import type { SuccessResponseConfig, ErrorResponseConfig, SuccessResponse, ErrorResponse } from '../types';
+import type { SuccessResponseConfig, ErrorResponseConfig, SuccessResponse, ErrorResponse, PaginationInput } from '../types';
 import { HttpError } from '../errors/HttpError';
 import { getSuccessDefinition } from '../constants/success-definitions';
 import { HttpSuccessCode, HttpRedirectCode } from '../constants/status-codes';
@@ -46,9 +46,9 @@ export class HttpResponse {
      * @param config - Success response configuration
      * @returns Formatted success response object
      */
-    static success(config: SuccessResponseConfig = {}): SuccessResponse {
+    static success<T = unknown>(config: SuccessResponseConfig<T> = {}): SuccessResponse<T> {
         const {
-            data = null,
+            data,
             message,
             statusCode = HttpSuccessCode.OK,
             metadata = {},
@@ -56,7 +56,7 @@ export class HttpResponse {
 
         const successInfo = getSuccessDefinition(statusCode);
 
-        const response: SuccessResponse = {
+        const response: SuccessResponse<T> = {
             success: true,
             status_code: successInfo.code,
         };
@@ -65,10 +65,11 @@ export class HttpResponse {
             response.timestamp = new Date().toISOString();
         }
 
-        // Don't include data for 204 No Content and 205 Reset Content
+        // Don't include data for 204 No Content, 205 Reset Content, and 304 Not Modified
         if (
             statusCode !== HttpSuccessCode.NO_CONTENT &&
-            statusCode !== HttpSuccessCode.RESET_CONTENT
+            statusCode !== HttpSuccessCode.RESET_CONTENT &&
+            statusCode !== HttpRedirectCode.NOT_MODIFIED
         ) {
             if (data !== null && data !== undefined) {
                 response.data = data;
@@ -86,7 +87,7 @@ export class HttpResponse {
         // Apply custom transformer if configured
         const transformer = getResponseTransformer();
         if (transformer) {
-            return transformer(response) as SuccessResponse;
+            return transformer(response) as SuccessResponse<T>;
         }
 
         return response;
@@ -116,14 +117,19 @@ export class HttpResponse {
             response.timestamp = new Date().toISOString();
         }
 
-        // Include stack trace in development mode
+        // Include original error details if available
+        if (error.details) {
+            response.error.details = error.details;
+        }
+
+        // Include stack trace in development mode (separate field)
         if (includeStack ?? isDevelopment()) {
-            (response.error as Record<string, unknown>).details = error.stack;
+            response.error.stack = error.stack;
         }
 
         // Include retry-after if present
         if (error.retryAfter) {
-            (response as Record<string, unknown>).retry_after = error.retryAfter;
+            response.retry_after = error.retryAfter;
         }
 
         // Include metadata if present
@@ -131,9 +137,10 @@ export class HttpResponse {
             response.metadata = error.metadata;
         }
 
-        // Add any additional fields
+        // Add any additional fields (protecting core structure)
         if (additionalFields) {
-            Object.assign(response, additionalFields);
+            const { success, status_code, error: _error, timestamp, metadata, retry_after, ...safeFields } = additionalFields;
+            Object.assign(response, safeFields);
         }
 
         // Apply custom transformer if configured
@@ -153,7 +160,7 @@ export class HttpResponse {
      * @returns Formatted error response object
      */
     static fromError(error: unknown, config: ErrorResponseConfig = {}): ErrorResponse {
-        const httpError = HttpError.fromError(error);
+        const httpError = HttpError.fromError(error, config.fallbackCode);
         return HttpResponse.error(httpError, config);
     }
 
@@ -162,33 +169,33 @@ export class HttpResponse {
     // ========================================================================
 
     /** 200 OK */
-    static ok(data?: unknown, message?: string): SuccessResponse {
-        return HttpResponse.success({ data, message, statusCode: HttpSuccessCode.OK });
+    static ok<T = unknown>(data?: T, message?: string): SuccessResponse<T> {
+        return HttpResponse.success<T>({ data, message, statusCode: HttpSuccessCode.OK });
     }
 
     /** 201 Created */
-    static created(data?: unknown, message?: string): SuccessResponse {
-        return HttpResponse.success({ data, message, statusCode: HttpSuccessCode.CREATED });
+    static created<T = unknown>(data?: T, message?: string): SuccessResponse<T> {
+        return HttpResponse.success<T>({ data, message, statusCode: HttpSuccessCode.CREATED });
     }
 
     /** 202 Accepted */
-    static accepted(data?: unknown, message?: string): SuccessResponse {
-        return HttpResponse.success({ data, message, statusCode: HttpSuccessCode.ACCEPTED });
+    static accepted<T = unknown>(data?: T, message?: string): SuccessResponse<T> {
+        return HttpResponse.success<T>({ data, message, statusCode: HttpSuccessCode.ACCEPTED });
     }
 
     /** 204 No Content */
-    static noContent(): SuccessResponse {
-        return HttpResponse.success({ statusCode: HttpSuccessCode.NO_CONTENT });
+    static noContent(): SuccessResponse<never> {
+        return HttpResponse.success<never>({ statusCode: HttpSuccessCode.NO_CONTENT });
     }
 
     /** 206 Partial Content */
-    static partialContent(data?: unknown, message?: string): SuccessResponse {
-        return HttpResponse.success({ data, message, statusCode: HttpSuccessCode.PARTIAL_CONTENT });
+    static partialContent<T = unknown>(data?: T, message?: string): SuccessResponse<T> {
+        return HttpResponse.success<T>({ data, message, statusCode: HttpSuccessCode.PARTIAL_CONTENT });
     }
 
-    /** 304 Not Modified */
-    static notModified(): SuccessResponse {
-        return HttpResponse.success({ statusCode: HttpRedirectCode.NOT_MODIFIED });
+    /** 304 Not Modified — Note: 304 is a 3xx redirect code, included here as a convenience method */
+    static notModified(): SuccessResponse<never> {
+        return HttpResponse.success<never>({ statusCode: HttpRedirectCode.NOT_MODIFIED });
     }
 
     // ========================================================================
@@ -212,26 +219,22 @@ export class HttpResponse {
     /**
      * Create a paginated success response
      */
-    static paginated(
-        data: unknown[],
-        pagination: {
-            page: number;
-            limit: number;
-            total: number;
-            totalPages?: number;
-        },
+    static paginated<T = unknown>(
+        data: T[],
+        pagination: PaginationInput,
         message?: string
-    ): SuccessResponse {
-        return HttpResponse.success({
+    ): SuccessResponse<T[]> {
+        const effectiveLimit = pagination.limit > 0 ? pagination.limit : 1;
+        return HttpResponse.success<T[]>({
             data,
             message,
             metadata: {
                 pagination: {
                     page: pagination.page,
-                    limit: pagination.limit,
+                    limit: effectiveLimit,
                     total: pagination.total,
-                    total_pages: pagination.totalPages ?? Math.ceil(pagination.total / pagination.limit),
-                    has_next: pagination.page < (pagination.totalPages ?? Math.ceil(pagination.total / pagination.limit)),
+                    total_pages: pagination.totalPages ?? Math.ceil(pagination.total / effectiveLimit),
+                    has_next: pagination.page < (pagination.totalPages ?? Math.ceil(pagination.total / effectiveLimit)),
                     has_prev: pagination.page > 1,
                 },
             },

@@ -56,9 +56,9 @@ export interface HttpSuccessInfo {
 /**
  * Configuration for success responses
  */
-export interface SuccessResponseConfig {
+export interface SuccessResponseConfig<T = unknown> {
     /** Response data payload */
-    data?: unknown;
+    data?: T;
     /** Custom success message */
     message?: string;
     /** HTTP status code (default: 200) */
@@ -75,6 +75,8 @@ export interface ErrorResponseConfig {
     includeStack?: boolean;
     /** Additional fields to include */
     additionalFields?: Record<string, unknown>;
+    /** Fallback status code for unknown errors */
+    fallbackCode?: number;
 }
 
 // ============================================================================
@@ -100,31 +102,67 @@ export interface LibraryConfig {
 // ============================================================================
 
 /**
- * Standard success response structure
+ * Standard success response structure.
+ * The index signature `[key: string]: unknown` allows additional fields via
+ * `additionalFields`, but extra properties will be typed as `unknown` at compile time.
  */
-export interface SuccessResponse {
+export interface SuccessResponse<T = unknown> {
     success: true;
     status_code: number;
     timestamp?: string;
-    data?: unknown;
+    data?: T;
     message?: string;
     metadata?: Record<string, unknown>;
     [key: string]: unknown;
 }
 
 /**
- * Standard error response structure
+ * Standard error response structure.
+ * The index signature `[key: string]: unknown` allows additional fields via
+ * `additionalFields`, but extra properties will be typed as `unknown` at compile time.
  */
 export interface ErrorResponse {
     success: false;
     status_code: number;
     timestamp?: string;
+    retry_after?: number;
     error: {
         type: string;
         title: string;
         message: string;
         details?: string;
+        stack?: string;
     };
     metadata?: Record<string, unknown>;
     [key: string]: unknown;
+}
+
+// ============================================================================
+// Pagination Types
+// ============================================================================
+
+/**
+ * Input parameters for paginated responses
+ */
+export interface PaginationInput {
+    /** Current page number */
+    page: number;
+    /** Items per page */
+    limit: number;
+    /** Total number of items */
+    total: number;
+    /** Optional pre-computed total pages (overrides auto-calculation) */
+    totalPages?: number;
+}
+
+/**
+ * Pagination metadata included in paginated responses
+ */
+export interface PaginationMeta {
+    page: number;
+    limit: number;
+    total: number;
+    total_pages: number;
+    has_next: boolean;
+    has_prev: boolean;
 }

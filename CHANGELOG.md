@@ -5,8 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-02-06
+## [1.1.0] - 2026-02-28
 
+### Added
+- **`HttpError.details` Property**: Error instances now expose the original definition description via `error.details`, accessible even when a custom message overrides the default.
+- **`ErrorResponse.error.stack` Field**: Stack traces are now stored in a dedicated `error.stack` field, separate from `error.details`, so semantic descriptions and debug info coexist.
+- **`ErrorResponse.retry_after` Type**: The `retry_after` field is now explicitly declared in the `ErrorResponse` interface for full TypeScript autocompletion.
+- **`HttpError.fromStatus()` Method**: Semantic alias for `new HttpError(code)` — creates an error directly from a status code with optional options.
+- **`PaginationInput` & `PaginationMeta` Types**: Exported named interfaces for paginated response input and metadata, improving consumer-side type safety.
+- **Input Validation**: `HttpError` constructor now throws a `RangeError` for status codes outside the 400–599 range, preventing silent misuse.
+- **`fromError` Validation**: `HttpError.fromError()` now validates `fallbackCode` is within 400–599, throwing a clear `RangeError` if not.
+- **Division-by-Zero Guard**: `HttpResponse.paginated()` safely handles `limit: 0` by clamping to `1`, avoiding `Infinity` in `total_pages`.
+- **Test Suite**: Comprehensive `vitest` suite with 44 tests covering core classes, edge cases, configuration integration, and definition consistency.
+
+### Changed
+- **Status Code Fidelity**: `getErrorDefinition` and `getSuccessDefinition` rigorously preserve custom, unmapped status codes (e.g., `499`, `299`) and dynamically build definitions.
+- **Structural Integrity Protection**: `HttpResponse.error()` now protects `retry_after` in addition to `success`, `error`, `status_code`, `timestamp`, and `metadata` from `additionalFields` override.
+- **Constructor Typing**: `HttpError` constructor now accepts `HttpClientErrorCode | HttpServerErrorCode | number` for better IntelliSense.
+- **Deep Merge for `customMessages`**: `configure()` now incrementally merges `customMessages` instead of replacing the entire object, so multiple calls preserve previous entries.
+- **Lazy `isDevelopment` Detection**: `process.env.NODE_ENV` is now evaluated at call time instead of at module import, ensuring consistency across environments and test runners.
+- **No-Body Status Codes**: `HttpResponse.success()` now excludes `data` for `304 Not Modified` alongside `204` and `205`, in compliance with HTTP specifications.
+- **`toJSON()` Includes `details`**: `HttpError.toJSON()` now serializes the `details` property for complete error representation.
+- **`getConfig()` Returns `Readonly`**: `getConfig()` now returns `Readonly<LibraryConfig>` to signal immutability of the returned snapshot.
+- **Immutable Definitions**: All definition tables (`HttpErrorDefinitions`, `HttpSuccessDefinitions`, etc.) are now frozen with `Object.freeze` and typed with `as const`.
+
+
+## [1.0.0] - 2026-02-06
 ### Added
 
 - **HttpError class** with 35+ factory methods for all HTTP error codes (400-511)

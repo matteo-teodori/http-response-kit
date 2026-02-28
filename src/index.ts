@@ -18,6 +18,8 @@ export type {
     LibraryConfig,
     SuccessResponse,
     ErrorResponse,
+    PaginationInput,
+    PaginationMeta,
 } from './types';
 
 // ============================================================================

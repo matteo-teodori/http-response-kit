@@ -37,17 +37,22 @@ throw HttpError.unauthorized('Token expired');
 throw new HttpError(404, { message: 'User not found' });
 throw new HttpError(429, { message: 'Slow down!', retryAfter: 60 });
 
-// Format success responses
-const response = HttpResponse.success({
+// Format success responses using Generics for typesafety
+interface User {
+  id: number;
+  name: string;
+}
+
+const response = HttpResponse.success<User>({
   data: { id: 1, name: 'John' },
   message: 'User retrieved successfully'
 });
-// { success: true, status_code: 200, data: {...}, message: '...' }
+// { success: true, status_code: 200, data: User, message: '...' }
 
 // Format error responses
 const error = HttpError.notFound('User not found');
 const errorResponse = HttpResponse.error(error);
-// { success: false, status_code: 404, error: { type: 'not_found', ... } }
+// { success: false, status_code: 404, error: { type: 'not_found', message: '...', details: '...', ... } }
 ```
 
 ## Usage with Express
@@ -87,7 +92,7 @@ app.use((err, req, res, next) => {
 
 ## API Reference
 
-### HttpSuccessCode (1xx Informational)
+### HttpInfoCode (1xx Informational)
 
 | Enum | Code | Description |
 |------|------|-------------|
@@ -180,6 +185,10 @@ app.use((err, req, res, next) => {
 #### Utility Methods
 
 ```typescript
+// Create error from status code (semantic alias for new HttpError(code))
+const error = HttpError.fromStatus(503);
+const errorWithMsg = HttpError.fromStatus(404, { message: 'Not here' });
+
 // Convert any error to HttpError
 const httpError = HttpError.fromError(unknownError);
 
@@ -199,16 +208,16 @@ throw HttpError.badRequest('Validation failed', {
 ### HttpResponse
 
 ```typescript
-// Success responses
-HttpResponse.success({ data, message, statusCode, metadata });
-HttpResponse.ok(data, message);
-HttpResponse.created(data, message);
-HttpResponse.accepted(data, message);
+// Success responses using Generics for Type Safety
+HttpResponse.success<User>({ data, message, statusCode, metadata });
+HttpResponse.ok<User>(data, message);
+HttpResponse.created<User>(data, message);
+HttpResponse.accepted<User>(data, message);
 HttpResponse.noContent();
 
 // Error responses
-HttpResponse.error(httpError);
-HttpResponse.fromError(anyError);
+HttpResponse.error(httpError, { includeStack: true });
+HttpResponse.fromError(anyError, { fallbackCode: 503 });
 
 // Paginated responses
 HttpResponse.paginated(items, {
@@ -224,7 +233,7 @@ HttpResponse.paginated(items, {
 import { configure } from 'http-response-kit';
 
 configure({
-  // Enable stack traces in error responses
+  // Enable stack traces in error responses (auto-detects from NODE_ENV if omitted)
   isDevelopment: true,
   
   // Include timestamps in all responses
@@ -234,7 +243,7 @@ configure({
   customMessages: {
     404: 'Oops! This page went on vacation 🏝️',
     500: 'Well, this is embarrassing... 🤖'
-  },
+  },  // Note: multiple configure() calls are incrementally merged
   
   // Custom response transformer
   responseTransformer: (response) => ({

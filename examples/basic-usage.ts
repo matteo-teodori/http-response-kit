@@ -1,6 +1,6 @@
 /**
  * HTTP Response Kit - Example Usage
- * Run with: npx ts-node examples/basic-usage.ts
+ * Run with: npx tsx examples/basic-usage.ts
  */
 
 import {
@@ -37,6 +37,7 @@ console.log('NotFound Error:', {
     type: notFoundError.type,
     title: notFoundError.title,
     message: notFoundError.message,
+    details: notFoundError.details,
 });
 
 // Using constructor with options
@@ -60,14 +61,29 @@ console.log('\nRate Limit Error:', {
 console.log('\nIs client error?', notFoundError.isClientError()); // true
 console.log('Is server error?', notFoundError.isServerError()); // false
 
+// Using fromStatus — semantic alias for new HttpError(code)
+const gatewayError = HttpError.fromStatus(502, { message: 'Upstream failed' });
+console.log('\nfromStatus Error:', {
+    code: gatewayError.code,
+    type: gatewayError.type,
+    message: gatewayError.message,
+});
+
 // ============================================================================
 // HttpResponse Examples
 // ============================================================================
 
 console.log('\n\n📦 HttpResponse Examples\n');
 
-// Success response
-const successResponse = HttpResponse.success({
+// Define a typing interface to showcase Response Generics
+interface User {
+    id: number;
+    name: string;
+    email?: string;
+}
+
+// Success response with Typed Data
+const successResponse = HttpResponse.success<User>({
     data: { id: 1, name: 'John Doe', email: 'john@example.com' },
     message: 'User retrieved successfully',
 });
@@ -80,9 +96,15 @@ const createdResponse = HttpResponse.created(
 );
 console.log('\nCreated Response:', JSON.stringify(createdResponse, null, 2));
 
-// Error response
-const errorResponse = HttpResponse.error(notFoundError);
+// Error response with custom additional fields and protection
+const errorResponse = HttpResponse.error(notFoundError, {
+    additionalFields: {
+        custom_tracking_id: 'REQ-999',
+        success: true // This will be safely ignored by the integrity protection!
+    }
+});
 console.log('\nError Response:', JSON.stringify(errorResponse, null, 2));
+// Note: error.details contains the definition description, error.stack (in dev) contains the trace
 
 // Paginated response
 const paginatedResponse = HttpResponse.paginated(
@@ -99,10 +121,10 @@ console.log('\nPaginated Response:', JSON.stringify(paginatedResponse, null, 2))
 console.log('\n\n🌐 Express-like Usage Example\n');
 
 // Simulating an Express request handler
-async function getUserById(id: string) {
+async function getUserById(id: string): Promise<User | null> {
     // Simulate database lookup
     if (id === '123') {
-        return { id: '123', name: 'John Doe' };
+        return { id: 123, name: 'John Doe' };
     }
     return null;
 }
@@ -115,8 +137,8 @@ async function handleRequest(userId: string) {
             throw HttpError.notFound(`User with ID ${userId} not found`);
         }
 
-        // Return SuccessResponse directly - status_code is already inside!
-        return HttpResponse.ok(user, 'User found');
+        // Return SuccessResponse directly with Type Safety
+        return HttpResponse.ok<User>(user, 'User found');
     } catch (error) {
         // Return ErrorResponse directly - status_code is already inside!
         const httpError = HttpError.fromError(error);
@@ -139,4 +161,3 @@ handleRequest('999').then((response) => {
 });
 
 console.log('\n✅ Examples completed!');
-

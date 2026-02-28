@@ -1,6 +1,6 @@
 {
   "name": "http-response-kit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A professional HTTP error and response formatting library for Node.js",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -19,6 +19,8 @@
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -35,9 +37,11 @@
   "author": "Matteo Teodori",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^25.2.1",
-    "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "^25.3.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=16.0.0"

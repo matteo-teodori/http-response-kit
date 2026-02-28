@@ -307,11 +307,32 @@ export const HttpErrorDefinitions: Record<number, HttpErrorInfo> = {
         code: 511,
         details: 'The client needs to authenticate to gain network access.',
     },
-};
+} as const;
+
+Object.freeze(HttpErrorDefinitions);
 
 /**
  * Get error definition by status code
  */
 export function getErrorDefinition(code: number): HttpErrorInfo {
-    return HttpErrorDefinitions[code] || HttpErrorDefinitions[500];
+    if (code < 400 || code > 599) {
+        throw new RangeError(
+            `Invalid HTTP error code: ${code}. Must be between 400 and 599.`
+        );
+    }
+
+    if (HttpErrorDefinitions[code]) {
+        return HttpErrorDefinitions[code];
+    }
+
+    // Preserve the original code but provide a generic fallback definition
+    const isClientError = code >= 400 && code < 500;
+    return {
+        type: isClientError ? 'unknown_client_error' : 'unknown_server_error',
+        title: isClientError ? 'Unknown Client Error' : 'Unknown Server Error',
+        code: code,
+        details: isClientError
+            ? 'An unknown client error occurred.'
+            : 'An unknown server error occurred.',
+    };
 }
