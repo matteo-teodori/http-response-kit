@@ -7,7 +7,7 @@
 [![CI](https://github.com/matteo-teodori/http-response-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/matteo-teodori/http-response-kit/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/http-response-kit.svg)](https://www.npmjs.com/package/http-response-kit)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
@@ -32,7 +32,7 @@
 npm install http-response-kit
 ```
 
-Requires Node.js >= 18.
+Requires Node.js >= 20 (Node 18 reached end-of-life in April 2025).
 
 ## Quick Start
 
@@ -312,7 +312,7 @@ app.use((err, req, res, next) => {
 3. **`metadata` is omitted for non-exposable errors.**
 4. **`customMessages` moved to the kit** and act as per-status default messages at serialization time.
 5. `HttpError.fromStatus()` removed — use `new HttpError(code, options)`.
-6. `engines.node` is now `>= 18`; `cause` is the native ES2022 `Error.cause`.
+6. `engines.node` is now `>= 20` (Node 16/18 are end-of-life); `cause` is the native ES2022 `Error.cause`.
 
 ## API Reference
 

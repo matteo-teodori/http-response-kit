@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **BREAKING — `customMessages`** moved from global config to the kit and now act as per-status *default* messages applied at serialization time (explicit messages still win on exposable errors; for sanitized 5xx they replace the generic description).
 - **BREAKING — 5xx sanitization**: error messages of non-exposable errors (all 5xx by default, including `fromError()` wraps) are replaced with the generic status description in serialized responses, and `metadata` is omitted. Opt out per error with `expose: true`.
-- **BREAKING — Node >= 18** (`engines` bumped from >= 16; Node 16 is EOL).
+- **BREAKING — Node >= 20** (`engines` bumped from >= 16; Node 16 and 18 are EOL. The build output still targets `node18` syntax, but only >= 20 is supported and tested).
 - `tsup` build now emits six entry points (core + 4 adapters + schemas) with sourcemaps and treeshaking; `sideEffects: false` added for bundlers.
 - `package.json` exports map extended with subpaths; `publishConfig.provenance` enabled.
 - `HttpResponse` statics now delegate to the default `ResponseKit` (behavior preserved except sanitization above).
