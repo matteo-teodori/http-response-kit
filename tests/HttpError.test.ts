@@ -137,15 +137,6 @@ describe('HttpError', () => {
             expect(httpErr.message).toBe('42');
             expect(httpErr.code).toBe(500);
         });
-
-        it('should create error from status code via fromStatus alias', () => {
-            const err = HttpError.fromStatus(404);
-            expect(err.code).toBe(404);
-            expect(err.type).toBe('not_found');
-
-            const errWithMsg = HttpError.fromStatus(500, { message: 'Custom' });
-            expect(errWithMsg.message).toBe('Custom');
-        });
     });
 
     describe('definition consistency (#5)', () => {

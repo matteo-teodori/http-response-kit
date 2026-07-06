@@ -3,33 +3,39 @@
  * @module errors/HttpError
  */
 
-import type { HttpErrorOptions } from '../types';
-import { HttpClientErrorCode, HttpServerErrorCode } from '../constants/status-codes';
+import type { HttpErrorOptions, ProblemDetails, ProblemOptions, ValidationIssue } from '../types';
+import { type HttpClientErrorCode, type HttpServerErrorCode } from '../constants/status-codes';
 import { getErrorDefinition } from '../constants/error-definitions';
-import { getCustomMessage } from '../config';
+import { mapSystemError } from './system-errors';
 
 /**
  * Custom HTTP Error class that extends the native Error class.
  * Provides structured error information for HTTP responses.
- * 
+ *
+ * Security model: `expose` controls whether `message` may be sent to clients.
+ * It defaults to `true` for 4xx and `false` for 5xx, so internal server error
+ * messages are never leaked unless explicitly allowed. The full message is
+ * always available on the instance for logging.
+ *
  * @example
  * ```ts
  * // Basic usage with status code
  * throw new HttpError(404);
  * throw new HttpError(HttpErrorCode.NOT_FOUND);
- * 
+ *
  * // With custom message
  * throw new HttpError(404, { message: 'User not found' });
- * 
- * // With metadata
- * throw new HttpError(400, { 
+ *
+ * // With metadata + stable application code
+ * throw new HttpError(400, {
  *   message: 'Validation failed',
+ *   errorCode: 'VALIDATION_FAILED',
  *   metadata: { fields: ['email', 'password'] }
  * });
- * 
+ *
  * // Using factory methods
  * throw HttpError.notFound('Resource not found');
- * throw HttpError.badRequest('Invalid input');
+ * throw HttpError.validation([{ field: 'email', message: 'Invalid email' }]);
  * ```
  */
 export class HttpError extends Error {
@@ -48,22 +54,36 @@ export class HttpError extends Error {
     /** Additional error metadata */
     readonly metadata?: Record<string, unknown>;
 
-    /** Original error cause */
+    /** Original error cause (also available as native `Error.cause`) */
     readonly cause?: Error;
 
     /** Retry-after time in seconds (if applicable) */
     readonly retryAfter?: number;
 
+    /** Whether `message` is safe to send to clients (4xx: true, 5xx: false by default) */
+    readonly expose: boolean;
+
+    /** Stable application-level error code (e.g. "USER_NOT_FOUND") */
+    readonly errorCode?: string;
+
+    /** Structured validation issues */
+    readonly validationErrors?: ValidationIssue[];
+
+    /** Extra HTTP headers associated with this error */
+    readonly headers?: Record<string, string>;
+
+    /** RFC 9457 `instance` URI for this specific occurrence */
+    readonly instance?: string;
+
     /**
      * Creates a new HttpError instance
-     * 
+     *
      * @param code - HTTP status code (e.g., 404, 500)
      * @param options - Optional configuration
      */
     constructor(code: HttpClientErrorCode | HttpServerErrorCode | number, options: HttpErrorOptions = {}) {
         const errorInfo = getErrorDefinition(code);
-        const customMessage = getCustomMessage(code);
-        const finalMessage = options.message ?? customMessage ?? errorInfo.details;
+        const finalMessage = options.message ?? errorInfo.details;
 
         super(finalMessage);
 
@@ -73,8 +93,17 @@ export class HttpError extends Error {
         this.title = errorInfo.title;
         this.details = errorInfo.details;
         this.metadata = options.metadata;
-        this.cause = options.cause;
         this.retryAfter = options.retryAfter ?? errorInfo.retryAfter;
+        this.expose = options.expose ?? errorInfo.code < 500;
+        this.errorCode = options.errorCode;
+        this.validationErrors = options.validationErrors;
+        this.headers = options.headers;
+        this.instance = options.instance;
+
+        // Native ES2022 error cause + typed accessor
+        if (options.cause !== undefined) {
+            this.cause = options.cause;
+        }
 
         // Maintains proper stack trace for where error was thrown
         if (typeof (Error as any).captureStackTrace === 'function') {
@@ -83,7 +112,29 @@ export class HttpError extends Error {
     }
 
     /**
-     * Convert error to plain object for JSON serialization
+     * The message that is safe to send to clients.
+     * Falls back to the generic definition message when `expose` is false.
+     */
+    get safeMessage(): string {
+        return this.expose ? this.message : this.details;
+    }
+
+    /**
+     * HTTP headers that should accompany this error response
+     * (e.g. `Retry-After` for 429/503, plus any custom headers).
+     */
+    getHeaders(): Record<string, string> {
+        const headers: Record<string, string> = { ...this.headers };
+        if (this.retryAfter !== undefined) {
+            headers['Retry-After'] = String(this.retryAfter);
+        }
+        return headers;
+    }
+
+    /**
+     * Convert error to plain object for JSON serialization.
+     * Note: contains the full (non-sanitized) message - intended for logging.
+     * Use `kit.error()` / `toProblemDetails()` for client output.
      */
     toJSON(): Record<string, unknown> {
         return {
@@ -93,9 +144,60 @@ export class HttpError extends Error {
             title: this.title,
             message: this.message,
             details: this.details,
+            errorCode: this.errorCode,
             metadata: this.metadata,
             retryAfter: this.retryAfter,
+            expose: this.expose,
+            validationErrors: this.validationErrors,
         };
+    }
+
+    /**
+     * Build an RFC 9457 Problem Details object for this error.
+     * Serve it with `Content-Type: application/problem+json`.
+     *
+     * @example
+     * ```ts
+     * const problem = HttpError.notFound('User not found').toProblemDetails({
+     *   typeBase: 'https://errors.example.com',
+     *   instance: '/users/42',
+     * });
+     * // { type: 'https://errors.example.com/not_found', title: 'Not Found',
+     * //   status: 404, detail: 'User not found', instance: '/users/42' }
+     * ```
+     */
+    toProblemDetails(options: ProblemOptions = {}): ProblemDetails {
+        const exposed = options.expose ?? this.expose;
+        const problem: ProblemDetails = {
+            type: options.typeBase
+                ? `${options.typeBase.replace(/\/$/, '')}/${this.type}`
+                : 'about:blank',
+            title: this.title,
+            status: this.code,
+            detail: exposed ? this.message : this.details,
+        };
+
+        if (options.instance ?? this.instance) {
+            problem.instance = options.instance ?? this.instance;
+        }
+        if (this.errorCode) {
+            problem.code = this.errorCode;
+        }
+        if (this.validationErrors?.length) {
+            problem.errors = this.validationErrors;
+        }
+        if (options.requestId) {
+            problem.request_id = options.requestId;
+        }
+        if (options.extensions) {
+            for (const [key, value] of Object.entries(options.extensions)) {
+                if (!(key in problem)) {
+                    problem[key] = value;
+                }
+            }
+        }
+
+        return problem;
     }
 
     // ========================================================================
@@ -207,6 +309,25 @@ export class HttpError extends Error {
         return new HttpError(422, { message, metadata });
     }
 
+    /**
+     * 422 Unprocessable Entity with structured validation issues.
+     *
+     * @example
+     * ```ts
+     * throw HttpError.validation([
+     *   { field: 'email', message: 'Invalid email format', code: 'invalid_format' },
+     *   { field: 'age', message: 'Must be >= 18', code: 'too_small' },
+     * ]);
+     * ```
+     */
+    static validation(
+        errors: ValidationIssue[],
+        message = 'Validation failed',
+        code: number = 422
+    ): HttpError {
+        return new HttpError(code, { message, validationErrors: errors, errorCode: 'VALIDATION_FAILED' });
+    }
+
     /** 423 Locked */
     static locked(message?: string, metadata?: Record<string, unknown>): HttpError {
         return new HttpError(423, { message, metadata });
@@ -316,15 +437,17 @@ export class HttpError extends Error {
     // ========================================================================
 
     /**
-     * Create an HttpError from a status code with default definition values.
-     * Semantic alias for `new HttpError(code)`.
-     */
-    static fromStatus(code: HttpClientErrorCode | HttpServerErrorCode | number, options?: HttpErrorOptions): HttpError {
-        return new HttpError(code, options);
-    }
-
-    /**
-     * Create an HttpError from an unknown error
+     * Create an HttpError from an unknown error.
+     *
+     * Security: wrapped errors are marked `expose: false` when the resulting
+     * status is 5xx, so unexpected internal messages (DB errors, stack info,
+     * connection strings...) are never sent to clients. The original message
+     * and cause are preserved on the instance for logging.
+     *
+     * System/socket errors (ECONNREFUSED, ETIMEDOUT, undici fetch codes...)
+     * are automatically mapped to the semantically correct 502/503/504 -
+     * including codes buried in the `cause` chain (e.g. Node's
+     * `fetch failed` TypeError) - with the syscall code as `errorCode`.
      */
     static fromError(error: unknown, fallbackCode = 500): HttpError {
         if (error instanceof HttpError) {
@@ -337,15 +460,24 @@ export class HttpError extends Error {
             );
         }
 
+        // Recognized system/socket errors win over the generic fallback:
+        // they carry more precise gateway semantics (502/503/504).
+        const systemError = mapSystemError(error);
+        if (systemError !== undefined) {
+            return systemError;
+        }
+
         if (error instanceof Error) {
             return new HttpError(fallbackCode, {
                 message: error.message,
-                cause: error
+                cause: error,
+                expose: fallbackCode < 500,
             });
         }
 
         return new HttpError(fallbackCode, {
-            message: String(error)
+            message: String(error),
+            expose: fallbackCode < 500,
         });
     }
 
@@ -368,5 +500,21 @@ export class HttpError extends Error {
      */
     isServerError(): boolean {
         return this.code >= 500 && this.code < 600;
+    }
+
+    /**
+     * Flattened chain of cause messages (most recent first).
+     * Useful for structured logging; never serialized to clients in production.
+     */
+    getCauseChain(): string[] {
+        const chain: string[] = [];
+        let current: unknown = this.cause;
+        let depth = 0;
+        while (current instanceof Error && depth < 10) {
+            chain.push(`${current.name}: ${current.message}`);
+            current = (current as { cause?: unknown }).cause;
+            depth++;
+        }
+        return chain;
     }
 }

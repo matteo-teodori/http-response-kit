@@ -1,7 +1,7 @@
 {
   "name": "http-response-kit",
-  "version": "1.1.0",
-  "description": "A professional HTTP error and response formatting library for Node.js",
+  "version": "2.0.0",
+  "description": "Framework-agnostic HTTP error & response standardization for Node.js - RFC 9457 Problem Details, secure-by-default error exposure, domain error catalogs, and first-class adapters for Express/Fastify/Koa/Hono.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -10,18 +10,49 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
-    }
+    },
+    "./express": {
+      "types": "./dist/express.d.ts",
+      "import": "./dist/express.mjs",
+      "require": "./dist/express.js"
+    },
+    "./fastify": {
+      "types": "./dist/fastify.d.ts",
+      "import": "./dist/fastify.mjs",
+      "require": "./dist/fastify.js"
+    },
+    "./koa": {
+      "types": "./dist/koa.d.ts",
+      "import": "./dist/koa.mjs",
+      "require": "./dist/koa.js"
+    },
+    "./hono": {
+      "types": "./dist/hono.d.ts",
+      "import": "./dist/hono.mjs",
+      "require": "./dist/hono.js"
+    },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "import": "./dist/schemas.mjs",
+      "require": "./dist/schemas.js"
+    },
+    "./package.json": "./package.json"
   },
+  "sideEffects": false,
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
-    "lint": "tsc --noEmit",
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "test:coverage": "vitest run --coverage",
+    "ci": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "prepublishOnly": "npm run ci"
   },
   "keywords": [
     "http",
@@ -30,24 +61,44 @@
     "api",
     "rest",
     "status-code",
+    "rfc-9457",
+    "rfc-7807",
+    "problem-details",
+    "problem+json",
+    "error-handling",
     "express",
+    "fastify",
+    "koa",
+    "hono",
     "nodejs",
     "typescript"
   ],
   "author": "Matteo Teodori",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^25.3.2",
-    "tsup": "^8.5.1",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.1.0",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "10.6.0",
+    "tsup": "8.5.1",
+    "tsx": "4.23.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.62.1",
+    "vitest": "4.1.10"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "provenance": true,
+    "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/matteo-teodori/http-response-kit"
+    "url": "git+https://github.com/matteo-teodori/http-response-kit.git"
+  },
+  "homepage": "https://github.com/matteo-teodori/http-response-kit#readme",
+  "bugs": {
+    "url": "https://github.com/matteo-teodori/http-response-kit/issues"
   }
 }

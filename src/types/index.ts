@@ -26,6 +26,19 @@ export interface HttpErrorInfo {
 }
 
 /**
+ * A single validation issue, used for structured 422/400 responses.
+ * Mirrors the common `errors[]` extension of RFC 9457.
+ */
+export interface ValidationIssue {
+    /** The field/path that failed validation (e.g. "email", "items[0].qty") */
+    field: string;
+    /** Human-readable description of the issue */
+    message: string;
+    /** Optional stable machine-readable code (e.g. "too_short") */
+    code?: string;
+}
+
+/**
  * Configuration options for HttpError
  */
 export interface HttpErrorOptions {
@@ -33,10 +46,27 @@ export interface HttpErrorOptions {
     message?: string;
     /** Additional metadata */
     metadata?: Record<string, unknown>;
-    /** Original error cause */
+    /** Original error cause (also set as the native ES2022 `Error.cause`) */
     cause?: Error;
     /** Retry-after time in seconds */
     retryAfter?: number;
+    /**
+     * Whether the error message is safe to expose to clients.
+     * Defaults to `true` for 4xx and `false` for 5xx (security best practice:
+     * internal server error messages are never leaked unless explicitly allowed).
+     */
+    expose?: boolean;
+    /**
+     * Stable application-level error code, independent from the HTTP status
+     * (e.g. "USER_NOT_FOUND", "ERR-1042"). Serialized as `error.code`.
+     */
+    errorCode?: string;
+    /** Structured validation issues (serialized as `error.errors`) */
+    validationErrors?: ValidationIssue[];
+    /** Extra HTTP headers to send with the error (merged into `getHeaders()`) */
+    headers?: Record<string, string>;
+    /** RFC 9457 `instance`: URI identifying this specific occurrence */
+    instance?: string;
 }
 
 // ============================================================================
@@ -65,36 +95,92 @@ export interface SuccessResponseConfig<T = unknown> {
     statusCode?: number;
     /** Additional metadata */
     metadata?: Record<string, unknown>;
+    /** Correlation/request id echoed as `request_id` */
+    requestId?: string;
 }
 
 /**
  * Configuration for error responses
  */
 export interface ErrorResponseConfig {
-    /** Include stack trace in response */
+    /** Include stack trace in response (overrides dev-mode default) */
     includeStack?: boolean;
     /** Additional fields to include */
     additionalFields?: Record<string, unknown>;
     /** Fallback status code for unknown errors */
     fallbackCode?: number;
+    /** Correlation/request id echoed as `request_id` */
+    requestId?: string;
+    /** RFC 9457 `instance` override for this response */
+    instance?: string;
+    /** Force-expose (or hide) the error message regardless of `error.expose` */
+    expose?: boolean;
 }
 
 // ============================================================================
 // Library Configuration
 // ============================================================================
 
+/** Output key casing for generated responses */
+export type ResponseCasing = 'snake' | 'camel';
+
+/** Output format: proprietary envelope or RFC 9457 Problem Details */
+export type ResponseFormat = 'standard' | 'problem';
+
 /**
- * Global library configuration
+ * Per-instance kit configuration (there is no global configuration:
+ * every `createResponseKit()` call owns an isolated copy of this).
  */
-export interface LibraryConfig {
+export interface KitConfig {
     /** Enable development mode (includes stack traces) */
     isDevelopment?: boolean;
-    /** Include timestamp in responses */
+    /** Include timestamp in responses (default: true) */
     includeTimestamp?: boolean;
     /** Custom default messages per error code */
     customMessages?: Partial<Record<number, string>>;
-    /** Custom response transformer */
+    /** Custom response transformer (applied last) */
     responseTransformer?: (response: Record<string, unknown>) => Record<string, unknown>;
+    /**
+     * Error output format (default: 'standard').
+     * 'problem' emits RFC 9457 Problem Details bodies from `error()`.
+     */
+    format?: ResponseFormat;
+    /** Key casing of generated responses (default: 'snake') */
+    casing?: ResponseCasing;
+    /**
+     * Base URI used to build RFC 9457 `type` URIs
+     * (e.g. "https://errors.example.com" -> "https://errors.example.com/not_found").
+     * Defaults to "about:blank" semantics when unset.
+     */
+    problemTypeBase?: string;
+    /**
+     * Message resolver hook (i18n / localization).
+     * Return a string to override the outgoing message, or undefined to keep it.
+     */
+    messageResolver?: (error: HttpErrorLike) => string | undefined;
+    /**
+     * Sanitizer applied to metadata before serialization
+     * (strip PII, secrets, internal fields...).
+     */
+    metadataSanitizer?: (metadata: Record<string, unknown>) => Record<string, unknown>;
+    /**
+     * Expose 5xx error messages to clients by default (default: false).
+     * Strongly discouraged in production.
+     */
+    exposeServerErrors?: boolean;
+}
+
+/**
+ * Minimal structural view of HttpError used in config hooks
+ * (avoids circular type imports).
+ */
+export interface HttpErrorLike {
+    code: number;
+    type: string;
+    title: string;
+    message: string;
+    errorCode?: string;
+    metadata?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -110,6 +196,7 @@ export interface SuccessResponse<T = unknown> {
     success: true;
     status_code: number;
     timestamp?: string;
+    request_id?: string;
     data?: T;
     message?: string;
     metadata?: Record<string, unknown>;
@@ -125,16 +212,63 @@ export interface ErrorResponse {
     success: false;
     status_code: number;
     timestamp?: string;
+    request_id?: string;
     retry_after?: number;
     error: {
         type: string;
         title: string;
         message: string;
+        code?: string;
         details?: string;
+        errors?: ValidationIssue[];
         stack?: string;
+        causes?: string[];
     };
     metadata?: Record<string, unknown>;
     [key: string]: unknown;
+}
+
+// ============================================================================
+// RFC 9457 Problem Details
+// ============================================================================
+
+/**
+ * RFC 9457 (obsoletes RFC 7807) Problem Details object.
+ * Serve with `Content-Type: application/problem+json`.
+ */
+export interface ProblemDetails {
+    /** URI reference identifying the problem type (default "about:blank") */
+    type: string;
+    /** Short human-readable summary of the problem type */
+    title: string;
+    /** HTTP status code */
+    status: number;
+    /** Human-readable explanation specific to this occurrence */
+    detail?: string;
+    /** URI reference identifying this specific occurrence */
+    instance?: string;
+    /** Extension: stable application error code */
+    code?: string;
+    /** Extension: validation issues */
+    errors?: ValidationIssue[];
+    /** Extension: correlation/request id */
+    request_id?: string;
+    /** Extension members */
+    [key: string]: unknown;
+}
+
+/** Options for building a Problem Details object */
+export interface ProblemOptions {
+    /** Base URI for the `type` member (overrides config) */
+    typeBase?: string;
+    /** `instance` member */
+    instance?: string;
+    /** Correlation/request id */
+    requestId?: string;
+    /** Extra extension members */
+    extensions?: Record<string, unknown>;
+    /** Force-expose (or hide) the error message */
+    expose?: boolean;
 }
 
 // ============================================================================
@@ -142,7 +276,7 @@ export interface ErrorResponse {
 // ============================================================================
 
 /**
- * Input parameters for paginated responses
+ * Input parameters for offset-based paginated responses
  */
 export interface PaginationInput {
     /** Current page number */
@@ -165,4 +299,36 @@ export interface PaginationMeta {
     total_pages: number;
     has_next: boolean;
     has_prev: boolean;
+}
+
+/**
+ * Input parameters for cursor-based paginated responses
+ */
+export interface CursorPaginationInput {
+    /** Cursor pointing to the next page (absent/undefined = no next page) */
+    nextCursor?: string;
+    /** Cursor pointing to the previous page */
+    prevCursor?: string;
+    /** Items per page */
+    limit?: number;
+    /** Optional total count, when known */
+    total?: number;
+}
+
+// ============================================================================
+// Error Catalog Types
+// ============================================================================
+
+/** Definition of a single domain error in a catalog */
+export interface CatalogEntry {
+    /** HTTP status code (e.g. 404) */
+    status: number;
+    /** Default client-facing message */
+    message?: string;
+    /** Optional title override */
+    title?: string;
+    /** Whether the message is exposable (defaults to status < 500) */
+    expose?: boolean;
+    /** Default metadata */
+    metadata?: Record<string, unknown>;
 }

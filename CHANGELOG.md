@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-06
+
+### Added
+- **RFC 9457 Problem Details**: `HttpError.toProblemDetails()`, `HttpResponse.problem()`, `toProblem()`, `isProblemDetails()`, `PROBLEM_CONTENT_TYPE`, and a `format: 'problem'` config that switches adapters to `application/problem+json` output. Configurable `problemTypeBase` for `type` URIs.
+- **`expose` security flag** on `HttpError` (default: `true` for 4xx, `false` for 5xx) with `safeMessage` getter. Per-response override via `ErrorResponseConfig.expose` and global `exposeServerErrors` (discouraged).
+- **Isolated instances**: `createResponseKit()` / `ResponseKit` class — per-instance configuration with zero shared state, for multi-tenant and multi-package setups. The static `HttpResponse` API now delegates to a default kit bound to the global config.
+- **Domain error catalog**: `createErrorCatalog()` produces typed factories with stable `errorCode`s (serialized as `error.code` and Problem Details `code`).
+- **Structured validation errors**: `HttpError.validation()` factory and `ValidationIssue` type; serialized as `error.errors` and RFC 9457 `errors` extension.
+- **Framework adapters** (zero-dependency subpath exports): `http-response-kit/express` (`errorHandler`, `notFoundHandler`), `/fastify` (`fastifyErrorHandler` with automatic AJV validation mapping, `fastifyNotFoundHandler`), `/koa` (`koaErrorHandler`), `/hono` (`honoErrorHandler`). All support `onError` logging hook, request-id extraction, error headers, and Problem Details mode.
+- **HTTP header support**: `HttpError.getHeaders()` (auto `Retry-After`) and `headers` option (e.g. `WWW-Authenticate`, `Allow`).
+- **Correlation IDs**: `requestId` option on success/error responses, serialized as `request_id`; automatic header extraction in adapters (`x-request-id`, configurable).
+- **Cursor pagination**: `HttpResponse.paginatedCursor()` / `kit.paginatedCursor()`.
+- **Socket/system error mapping**: `mapSystemError()` + `SystemErrorStatusMap`, integrated in `HttpError.fromError()` — Node system errors (ECONNREFUSED, ETIMEDOUT, EAI_AGAIN, undici/fetch codes, also via `cause` chain) map to 502/503/504 with the syscall code as `errorCode`; never exposed to clients.
+- **i18n hook**: `messageResolver` config for message localization/override.
+- **Metadata sanitizer**: `metadataSanitizer` config hook to strip PII/secrets before serialization.
+- **Output casing**: `casing: 'snake' | 'camel'` config for response keys.
+- **Cause chains**: `HttpError.getCauseChain()`; serialized as `error.causes` in development mode only. `cause` is now also the native ES2022 `Error.cause`.
+- **JSON Schemas / OpenAPI**: `http-response-kit/schemas` subpath with JSON Schema (2020-12) for all response shapes and ready-to-merge OpenAPI 3.1 `components`.
+- **Agent Skill**: `skills/http-response-kit/` (SKILL.md + API reference) teaches AI coding agents the library conventions; installable via `npx skills add matteo-teodori/http-response-kit`. Eval-validated (assertion pass rate 15% -> 100% vs no skill).
+- **Repository infrastructure**: GitHub Actions CI (Node 18/20/22 matrix + Windows), npm-provenance release workflow, ESLint (typescript-eslint flat config), coverage via V8, issue/PR templates, SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md, type-level tests.
+
+### Removed
+- **BREAKING — `HttpResponse` static facade and global `configure()`/`getConfig()`/`resetConfig()`/`isDevelopment()`.** The library is now kit-only: `createResponseKit(config)` is the single entry point and every instance owns its configuration (zero global state). All former statics exist on the kit with identical signatures; `HttpResponse.isSuccess`/`isError` became the standalone `isSuccessResponse`/`isErrorResponse` type guards.
+- **BREAKING — `HttpError.fromStatus()`** removed (redundant alias of `new HttpError(code, options)`).
+- **BREAKING — `LibraryConfig`** type renamed to `KitConfig`.
+
+### Changed
+- **BREAKING — `customMessages`** moved from global config to the kit and now act as per-status *default* messages applied at serialization time (explicit messages still win on exposable errors; for sanitized 5xx they replace the generic description).
+- **BREAKING — 5xx sanitization**: error messages of non-exposable errors (all 5xx by default, including `fromError()` wraps) are replaced with the generic status description in serialized responses, and `metadata` is omitted. Opt out per error with `expose: true`.
+- **BREAKING — Node >= 18** (`engines` bumped from >= 16; Node 16 is EOL).
+- `tsup` build now emits six entry points (core + 4 adapters + schemas) with sourcemaps and treeshaking; `sideEffects: false` added for bundlers.
+- `package.json` exports map extended with subpaths; `publishConfig.provenance` enabled.
+- `HttpResponse` statics now delegate to the default `ResponseKit` (behavior preserved except sanitization above).
+
 ## [1.1.0] - 2026-02-28
 
 ### Added

@@ -1,7 +1,17 @@
 /**
  * HTTP Response Kit
- * A professional HTTP error and response formatting library for Node.js
- * 
+ * Framework-agnostic HTTP error & response standardization for Node.js.
+ *
+ * Entry point: `createResponseKit()` - every kit is an isolated formatter
+ * with its own configuration (no global state).
+ *
+ * Framework adapters are available as subpath exports:
+ * - `http-response-kit/express`
+ * - `http-response-kit/fastify`
+ * - `http-response-kit/koa`
+ * - `http-response-kit/hono`
+ * - `http-response-kit/schemas` (JSON Schema / OpenAPI components)
+ *
  * @packageDocumentation
  */
 
@@ -12,14 +22,22 @@
 export type {
     HttpErrorInfo,
     HttpErrorOptions,
+    HttpErrorLike,
     HttpSuccessInfo,
     SuccessResponseConfig,
     ErrorResponseConfig,
-    LibraryConfig,
+    KitConfig,
+    ResponseCasing,
+    ResponseFormat,
     SuccessResponse,
     ErrorResponse,
+    ProblemDetails,
+    ProblemOptions,
+    ValidationIssue,
     PaginationInput,
     PaginationMeta,
+    CursorPaginationInput,
+    CatalogEntry,
 } from './types';
 
 // ============================================================================
@@ -52,19 +70,21 @@ export {
 } from './constants/success-definitions';
 
 // ============================================================================
-// Core Classes
+// Errors
 // ============================================================================
 
 export { HttpError } from './errors/HttpError';
-export { HttpResponse } from './responses/HttpResponse';
+export { createErrorCatalog, type CatalogFactory } from './errors/catalog';
+export { mapSystemError, SystemErrorStatusMap } from './errors/system-errors';
 
 // ============================================================================
-// Configuration
+// Response formatting (the kit)
 // ============================================================================
 
-export {
-    configure,
-    getConfig,
-    resetConfig,
-    isDevelopment,
-} from './config';
+export { ResponseKit, createResponseKit, isSuccessResponse, isErrorResponse } from './kit';
+
+// ============================================================================
+// RFC 9457 Problem Details
+// ============================================================================
+
+export { PROBLEM_CONTENT_TYPE, toProblem, isProblemDetails } from './responses/problem';

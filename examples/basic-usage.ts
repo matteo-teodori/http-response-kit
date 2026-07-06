@@ -1,163 +1,86 @@
 /**
- * HTTP Response Kit - Example Usage
+ * HTTP Response Kit - Example Usage (v2, kit-only API)
  * Run with: npx tsx examples/basic-usage.ts
  */
 
 import {
+    createResponseKit,
+    createErrorCatalog,
     HttpError,
-    HttpResponse,
-    configure,
-    HttpClientErrorCode
+    PROBLEM_CONTENT_TYPE,
+    isErrorResponse,
 } from '../src';
 
 // ============================================================================
-// Configuration
+// 1. Create your kit (the single entry point - no global state)
 // ============================================================================
 
-console.log('🔧 Configuring library...\n');
-
-configure({
-    isDevelopment: true,
-    includeTimestamp: true,
-    customMessages: {
-        404: 'Oops! This page went on vacation 🏝️'
-    },
+const api = createResponseKit({
+    isDevelopment: process.env.NODE_ENV === 'development',
+    customMessages: { 404: 'Nothing to see here.' },
 });
 
 // ============================================================================
-// HttpError Examples
+// 2. Success responses
 // ============================================================================
 
-console.log('📛 HttpError Examples\n');
+interface User { id: number; name: string }
 
-// Using factory methods
-const notFoundError = HttpError.notFound('User with ID 123 not found');
-console.log('NotFound Error:', {
-    code: notFoundError.code,
-    type: notFoundError.type,
-    title: notFoundError.title,
-    message: notFoundError.message,
-    details: notFoundError.details,
-});
-
-// Using constructor with options
-const validationError = new HttpError(HttpClientErrorCode.BAD_REQUEST, {
-    message: 'Validation failed',
-    metadata: {
-        fields: ['email', 'password'],
-        errors: ['Email is invalid', 'Password too short'],
-    },
-});
-console.log('\nValidation Error:', validationError.toJSON());
-
-// With retry-after
-const rateLimitError = HttpError.tooManyRequests('Too many requests', 60);
-console.log('\nRate Limit Error:', {
-    code: rateLimitError.code,
-    retryAfter: rateLimitError.retryAfter,
-});
-
-// Check error type
-console.log('\nIs client error?', notFoundError.isClientError()); // true
-console.log('Is server error?', notFoundError.isServerError()); // false
-
-// Using fromStatus — semantic alias for new HttpError(code)
-const gatewayError = HttpError.fromStatus(502, { message: 'Upstream failed' });
-console.log('\nfromStatus Error:', {
-    code: gatewayError.code,
-    type: gatewayError.type,
-    message: gatewayError.message,
-});
+console.log(api.ok<User>({ id: 1, name: 'John' }, 'User retrieved'));
+console.log(api.created({ id: 2 }));
+console.log(api.paginated([1, 2, 3], { page: 1, limit: 3, total: 9 }));
+console.log(api.paginatedCursor([1, 2, 3], { nextCursor: 'abc', limit: 3 }));
 
 // ============================================================================
-// HttpResponse Examples
+// 3. Errors - secure by default
 // ============================================================================
 
-console.log('\n\n📦 HttpResponse Examples\n');
+// 4xx: message reaches the client
+console.log(api.error(HttpError.notFound('User with ID 999 not found')));
 
-// Define a typing interface to showcase Response Generics
-interface User {
-    id: number;
-    name: string;
-    email?: string;
+// 5xx: internal message NEVER reaches the client (stays on the instance for logs)
+const internal = HttpError.fromError(new Error('ECONNREFUSED db:5432'));
+console.log(internal.message);                  // full detail, for your logger
+console.log(api.error(internal).error.message); // generic, for the client
+
+// Explicit opt-in when a 5xx message IS meant for clients
+console.log(api.error(new HttpError(503, { message: 'Maintenance until 17:00 UTC', expose: true })));
+
+// ============================================================================
+// 4. Structured validation errors
+// ============================================================================
+
+const validation = HttpError.validation([
+    { field: 'email', message: 'Invalid email format', code: 'invalid_format' },
+]);
+console.log(api.error(validation).error.errors);
+
+// ============================================================================
+// 5. RFC 9457 Problem Details
+// ============================================================================
+
+const problem = api.problem(HttpError.notFound('User not found'), {
+    typeBase: 'https://errors.example.com',
+    instance: '/users/42',
+    requestId: 'req-123',
+});
+console.log(PROBLEM_CONTENT_TYPE, problem);
+
+// ============================================================================
+// 6. Domain error catalog (stable machine-readable codes)
+// ============================================================================
+
+const Errors = createErrorCatalog({
+    USER_NOT_FOUND: { status: 404, message: 'User does not exist' },
+    PLAN_LIMIT_REACHED: { status: 402, message: 'Upgrade your plan' },
+});
+console.log(api.error(Errors.USER_NOT_FOUND()).error.code); // 'USER_NOT_FOUND'
+
+// ============================================================================
+// 7. Type guards
+// ============================================================================
+
+const res = api.fromError(new Error('boom'));
+if (isErrorResponse(res)) {
+    console.log('status:', res.status_code);
 }
-
-// Success response with Typed Data
-const successResponse = HttpResponse.success<User>({
-    data: { id: 1, name: 'John Doe', email: 'john@example.com' },
-    message: 'User retrieved successfully',
-});
-console.log('Success Response:', JSON.stringify(successResponse, null, 2));
-
-// Created response
-const createdResponse = HttpResponse.created(
-    { id: 2, name: 'Jane Doe' },
-    'User created successfully'
-);
-console.log('\nCreated Response:', JSON.stringify(createdResponse, null, 2));
-
-// Error response with custom additional fields and protection
-const errorResponse = HttpResponse.error(notFoundError, {
-    additionalFields: {
-        custom_tracking_id: 'REQ-999',
-        success: true // This will be safely ignored by the integrity protection!
-    }
-});
-console.log('\nError Response:', JSON.stringify(errorResponse, null, 2));
-// Note: error.details contains the definition description, error.stack (in dev) contains the trace
-
-// Paginated response
-const paginatedResponse = HttpResponse.paginated(
-    [{ id: 1 }, { id: 2 }, { id: 3 }],
-    { page: 1, limit: 10, total: 100 },
-    'Users retrieved'
-);
-console.log('\nPaginated Response:', JSON.stringify(paginatedResponse, null, 2));
-
-// ============================================================================
-// Express-like Usage Example
-// ============================================================================
-
-console.log('\n\n🌐 Express-like Usage Example\n');
-
-// Simulating an Express request handler
-async function getUserById(id: string): Promise<User | null> {
-    // Simulate database lookup
-    if (id === '123') {
-        return { id: 123, name: 'John Doe' };
-    }
-    return null;
-}
-
-async function handleRequest(userId: string) {
-    try {
-        const user = await getUserById(userId);
-
-        if (!user) {
-            throw HttpError.notFound(`User with ID ${userId} not found`);
-        }
-
-        // Return SuccessResponse directly with Type Safety
-        return HttpResponse.ok<User>(user, 'User found');
-    } catch (error) {
-        // Return ErrorResponse directly - status_code is already inside!
-        const httpError = HttpError.fromError(error);
-        return HttpResponse.error(httpError);
-    }
-}
-
-// Test with existing user
-handleRequest('123').then((response) => {
-    console.log('Request for user 123:');
-    console.log(`  Status: ${response.status_code}`);
-    console.log(`  Response: ${JSON.stringify(response, null, 2)}`);
-});
-
-// Test with non-existing user
-handleRequest('999').then((response) => {
-    console.log('\nRequest for user 999:');
-    console.log(`  Status: ${response.status_code}`);
-    console.log(`  Response: ${JSON.stringify(response, null, 2)}`);
-});
-
-console.log('\n✅ Examples completed!');
