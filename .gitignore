@@ -1,6 +1,8 @@
 node_modules/
-dist/
+# Anchored to the repo root so they don't accidentally ignore nested paths
+# (e.g. tests/dist/ — the compiled-artifact test suite).
+/dist/
+/coverage/
 *.log
 .DS_Store
-coverage/
 .env
