@@ -17,6 +17,7 @@
  * @module errors/system-errors
  */
 
+import type { HttpErrorOptions } from '../types';
 import { HttpError } from './HttpError';
 
 /**
@@ -103,10 +104,17 @@ export function mapSystemError(error: unknown): HttpError | undefined {
     }
 
     const status = SystemErrorStatusMap[code];
-    return new HttpError(status, {
+    if (status === undefined) {
+        return undefined;
+    }
+
+    const options: HttpErrorOptions = {
         message: error instanceof Error ? error.message : String(error),
-        cause: error instanceof Error ? error : undefined,
         expose: false,
         errorCode: code,
-    });
+    };
+    if (error instanceof Error) {
+        options.cause = error;
+    }
+    return new HttpError(status, options);
 }

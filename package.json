@@ -1,40 +1,81 @@
 {
   "name": "http-response-kit",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Framework-agnostic HTTP error & response standardization for Node.js - RFC 9457 Problem Details, secure-by-default error exposure, domain error catalogs, and first-class adapters for Express/Fastify/Koa/Hono.",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     },
     "./express": {
-      "types": "./dist/express.d.ts",
-      "import": "./dist/express.mjs",
-      "require": "./dist/express.js"
+      "import": {
+        "types": "./dist/express.d.mts",
+        "default": "./dist/express.mjs"
+      },
+      "require": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      }
     },
     "./fastify": {
-      "types": "./dist/fastify.d.ts",
-      "import": "./dist/fastify.mjs",
-      "require": "./dist/fastify.js"
+      "import": {
+        "types": "./dist/fastify.d.mts",
+        "default": "./dist/fastify.mjs"
+      },
+      "require": {
+        "types": "./dist/fastify.d.ts",
+        "default": "./dist/fastify.js"
+      }
     },
     "./koa": {
-      "types": "./dist/koa.d.ts",
-      "import": "./dist/koa.mjs",
-      "require": "./dist/koa.js"
+      "import": {
+        "types": "./dist/koa.d.mts",
+        "default": "./dist/koa.mjs"
+      },
+      "require": {
+        "types": "./dist/koa.d.ts",
+        "default": "./dist/koa.js"
+      }
     },
     "./hono": {
-      "types": "./dist/hono.d.ts",
-      "import": "./dist/hono.mjs",
-      "require": "./dist/hono.js"
+      "import": {
+        "types": "./dist/hono.d.mts",
+        "default": "./dist/hono.mjs"
+      },
+      "require": {
+        "types": "./dist/hono.d.ts",
+        "default": "./dist/hono.js"
+      }
     },
     "./schemas": {
-      "types": "./dist/schemas.d.ts",
-      "import": "./dist/schemas.mjs",
-      "require": "./dist/schemas.js"
+      "import": {
+        "types": "./dist/schemas.d.mts",
+        "default": "./dist/schemas.mjs"
+      },
+      "require": {
+        "types": "./dist/schemas.d.ts",
+        "default": "./dist/schemas.js"
+      }
+    },
+    "./context": {
+      "import": {
+        "types": "./dist/context.d.mts",
+        "default": "./dist/context.mjs"
+      },
+      "require": {
+        "types": "./dist/context.d.ts",
+        "default": "./dist/context.js"
+      }
     },
     "./package.json": "./package.json"
   },
@@ -51,7 +92,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "ci": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "test:dist": "node --test tests/dist/cjs.test.cjs tests/dist/esm.test.mjs tests/dist/interop.test.mjs",
+    "check:package": "attw --pack . --profile node16 && publint --strict",
+    "ci": "npm run typecheck && npm run lint && npm run test:coverage && npm run build && npm run test:dist && npm run check:package",
     "prepublishOnly": "npm run ci"
   },
   "keywords": [
@@ -76,14 +119,18 @@
   "author": "Matteo Teodori",
   "license": "MIT",
   "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
     "@eslint/js": "10.0.1",
-    "@types/node": "26.1.0",
+    "@types/node": "26.1.1",
     "@vitest/coverage-v8": "4.1.10",
-    "eslint": "10.6.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "eslint": "10.7.0",
+    "publint": "0.3.22",
     "tsup": "8.5.1",
-    "tsx": "4.23.0",
+    "tsx": "4.23.1",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.62.1",
+    "typescript-eslint": "8.65.0",
     "vitest": "4.1.10"
   },
   "engines": {

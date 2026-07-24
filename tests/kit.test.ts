@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createResponseKit } from '../src/kit';
 import { HttpError } from '../src/errors/HttpError';
+import type { KitConfig } from '../src/types';
 
 describe('createResponseKit (isolated instances)', () => {
     it('should apply customMessages as default messages at serialization', () => {
@@ -109,6 +110,18 @@ describe('createResponseKit (isolated instances)', () => {
         expect(res.status_code).toBe(422);
         expect(res.error.code).toBe('VALIDATION_FAILED');
         expect(res.error.errors).toEqual([{ field: 'email', message: 'Invalid', code: 'invalid' }]);
+    });
+
+    it('kit.error() is always ErrorResponse, even under a problem-format kit', () => {
+        // error() is the envelope method; its return type is stable (sound) and
+        // `.error` is always accessible, regardless of the kit's `format`.
+        const config: KitConfig = { format: 'problem', includeTimestamp: false };
+        const kit = createResponseKit(config);
+        const res = kit.error(HttpError.notFound('x'));
+        expect(res.success).toBe(false);
+        expect(res.error.message).toBe('x');
+        // ...while problem() emits RFC 9457 for the same kit.
+        expect(kit.problem(HttpError.notFound('x')).status).toBe(404);
     });
 
     it('should include cause chain only in dev mode', () => {

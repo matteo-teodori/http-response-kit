@@ -9,6 +9,69 @@ import { getErrorDefinition } from '../constants/error-definitions';
 import { mapSystemError } from './system-errors';
 
 /**
+ * Cross-realm brand used to recognize `HttpError` instances WITHOUT `instanceof`.
+ *
+ * `instanceof` compares class identity, which breaks whenever two copies of this
+ * class coexist — e.g. the CommonJS build inlines the class into every entry
+ * point (tsup cannot code-split CJS), or an ESM app dynamically `require()`s the
+ * CJS build, or two versions of the package end up in the dependency tree.
+ * `Symbol.for()` returns the same symbol across every copy and realm, so a plain
+ * property check works everywhere. See `isHttpError`.
+ */
+const HTTP_ERROR_BRAND: unique symbol = Symbol.for('http-response-kit.HttpError');
+
+/** RFC 9110 forbids CR/LF (and NUL) in header field names and values. */
+function assertSafeHeaders(headers: Record<string, string>): void {
+    for (const [name, value] of Object.entries(headers)) {
+        if (/[\r\n\0]/.test(name) || /[\r\n\0]/.test(String(value))) {
+            throw new TypeError(
+                `Invalid HTTP header ${JSON.stringify(name)}: names and values must not contain CR, LF or NUL characters.`
+            );
+        }
+    }
+}
+
+/**
+ * Take a frozen, validated copy of caller-supplied headers.
+ *
+ * Each value is coerced to a primitive string EXACTLY ONCE while building the
+ * copy, then validated, then frozen. Coercing to a primitive is what makes the
+ * validated value identical to the stored value: it closes time-of-check /
+ * time-of-use gaps where a property getter — or a value object with a mutating
+ * `toString()` — could return `"safe"` during validation and a CRLF payload on
+ * a later read. The frozen container also blocks post-construction mutation.
+ */
+function sanitizeHeaders(headers: Record<string, string> | undefined): Record<string, string> | undefined {
+    if (headers === undefined) {
+        return undefined;
+    }
+    const copy: Record<string, string> = {};
+    for (const [name, value] of Object.entries(headers)) {
+        // String(value) invokes any getter/toString once and stores the result
+        // as an immutable primitive — no reference to a mutable object survives.
+        copy[name] = String(value);
+    }
+    assertSafeHeaders(copy);
+    Object.freeze(copy);
+    return copy;
+}
+
+/** RFC 9110 §10.2.3: Retry-After is a non-negative integer of seconds or an HTTP-date. */
+function assertValidRetryAfter(retryAfter: number | Date): void {
+    if (retryAfter instanceof Date) {
+        if (Number.isNaN(retryAfter.getTime())) {
+            throw new RangeError('Invalid retryAfter: Date is not a valid time.');
+        }
+        return;
+    }
+    if (!Number.isInteger(retryAfter) || retryAfter < 0 || retryAfter > Number.MAX_SAFE_INTEGER) {
+        throw new RangeError(
+            `Invalid retryAfter: ${String(retryAfter)}. Must be a non-negative integer of seconds or a Date.`
+        );
+    }
+}
+
+/**
  * Custom HTTP Error class that extends the native Error class.
  * Provides structured error information for HTTP responses.
  *
@@ -39,6 +102,12 @@ import { mapSystemError } from './system-errors';
  * ```
  */
 export class HttpError extends Error {
+    /**
+     * Brand marking this object as an `HttpError` across realms and duplicate
+     * copies of the class. Prefer {@link HttpError.isHttpError} over `instanceof`.
+     */
+    readonly [HTTP_ERROR_BRAND] = true as const;
+
     /** HTTP status code */
     readonly code: number;
 
@@ -52,28 +121,28 @@ export class HttpError extends Error {
     readonly details: string;
 
     /** Additional error metadata */
-    readonly metadata?: Record<string, unknown>;
+    readonly metadata: Record<string, unknown> | undefined;
 
     /** Original error cause (also available as native `Error.cause`) */
-    readonly cause?: Error;
+    readonly cause: Error | undefined;
 
-    /** Retry-after time in seconds (if applicable) */
-    readonly retryAfter?: number;
+    /** Retry-after time: non-negative integer of seconds, or an HTTP-date (if applicable) */
+    readonly retryAfter: number | Date | undefined;
 
     /** Whether `message` is safe to send to clients (4xx: true, 5xx: false by default) */
     readonly expose: boolean;
 
     /** Stable application-level error code (e.g. "USER_NOT_FOUND") */
-    readonly errorCode?: string;
+    readonly errorCode: string | undefined;
 
     /** Structured validation issues */
-    readonly validationErrors?: ValidationIssue[];
+    readonly validationErrors: ValidationIssue[] | undefined;
 
     /** Extra HTTP headers associated with this error */
-    readonly headers?: Record<string, string>;
+    readonly headers: Record<string, string> | undefined;
 
     /** RFC 9457 `instance` URI for this specific occurrence */
-    readonly instance?: string;
+    readonly instance: string | undefined;
 
     /**
      * Creates a new HttpError instance
@@ -87,17 +156,24 @@ export class HttpError extends Error {
 
         super(finalMessage);
 
+        const retryAfter = options.retryAfter ?? errorInfo.retryAfter;
+        if (retryAfter !== undefined) {
+            assertValidRetryAfter(retryAfter);
+        }
+
         this.name = 'HttpError';
         this.code = errorInfo.code;
         this.type = errorInfo.type;
         this.title = errorInfo.title;
         this.details = errorInfo.details;
         this.metadata = options.metadata;
-        this.retryAfter = options.retryAfter ?? errorInfo.retryAfter;
+        this.retryAfter = retryAfter;
         this.expose = options.expose ?? errorInfo.code < 500;
         this.errorCode = options.errorCode;
         this.validationErrors = options.validationErrors;
-        this.headers = options.headers;
+        // Frozen, validated copy (see sanitizeHeaders): closes CRLF injection via
+        // post-construction mutation and via time-of-check/time-of-use getters.
+        this.headers = sanitizeHeaders(options.headers);
         this.instance = options.instance;
 
         // Native ES2022 error cause + typed accessor
@@ -126,7 +202,8 @@ export class HttpError extends Error {
     getHeaders(): Record<string, string> {
         const headers: Record<string, string> = { ...this.headers };
         if (this.retryAfter !== undefined) {
-            headers['Retry-After'] = String(this.retryAfter);
+            headers['Retry-After'] =
+                this.retryAfter instanceof Date ? this.retryAfter.toUTCString() : String(this.retryAfter);
         }
         return headers;
     }
@@ -354,7 +431,7 @@ export class HttpError extends Error {
     }
 
     /** 429 Too Many Requests */
-    static tooManyRequests(message?: string, retryAfter?: number, metadata?: Record<string, unknown>): HttpError {
+    static tooManyRequests(message?: string, retryAfter?: number | Date, metadata?: Record<string, unknown>): HttpError {
         return new HttpError(429, { message, metadata, retryAfter });
     }
 
@@ -388,7 +465,7 @@ export class HttpError extends Error {
     }
 
     /** 503 Service Unavailable */
-    static serviceUnavailable(message?: string, retryAfter?: number, metadata?: Record<string, unknown>): HttpError {
+    static serviceUnavailable(message?: string, retryAfter?: number | Date, metadata?: Record<string, unknown>): HttpError {
         return new HttpError(503, { message, metadata, retryAfter });
     }
 
@@ -450,7 +527,7 @@ export class HttpError extends Error {
      * `fetch failed` TypeError) - with the syscall code as `errorCode`.
      */
     static fromError(error: unknown, fallbackCode = 500): HttpError {
-        if (error instanceof HttpError) {
+        if (HttpError.isHttpError(error)) {
             return error;
         }
 
@@ -482,10 +559,19 @@ export class HttpError extends Error {
     }
 
     /**
-     * Check if an error is an HttpError
+     * Check if a value is an `HttpError`.
+     *
+     * Uses a `Symbol.for()` brand instead of `instanceof`, so it stays correct
+     * across module realms and duplicate copies of the class: CommonJS builds
+     * (where the class is inlined into every entry point), ESM↔CJS interop, and
+     * multiple package versions in the dependency tree all resolve correctly.
      */
     static isHttpError(error: unknown): error is HttpError {
-        return error instanceof HttpError;
+        return (
+            typeof error === 'object' &&
+            error !== null &&
+            (error as Record<PropertyKey, unknown>)[HTTP_ERROR_BRAND] === true
+        );
     }
 
     /**

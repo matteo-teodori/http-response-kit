@@ -48,8 +48,12 @@ export interface HttpErrorOptions {
     metadata?: Record<string, unknown>;
     /** Original error cause (also set as the native ES2022 `Error.cause`) */
     cause?: Error;
-    /** Retry-after time in seconds */
-    retryAfter?: number;
+    /**
+     * Retry-after hint: a non-negative integer number of seconds, or an absolute
+     * `Date` (serialized as an HTTP-date in the `Retry-After` header). Validated
+     * at construction — RFC 9110 §10.2.3.
+     */
+    retryAfter?: number | Date;
     /**
      * Whether the error message is safe to expose to clients.
      * Defaults to `true` for 4xx and `false` for 5xx (security best practice:
@@ -138,11 +142,17 @@ export interface KitConfig {
     includeTimestamp?: boolean;
     /** Custom default messages per error code */
     customMessages?: Partial<Record<number, string>>;
-    /** Custom response transformer (applied last) */
+    /**
+     * Custom response transformer (applied last). Prefer returning a new object
+     * over mutating the argument in place: it is given a clone, so if it throws
+     * the kit safely falls back to the un-transformed response.
+     */
     responseTransformer?: (response: Record<string, unknown>) => Record<string, unknown>;
     /**
-     * Error output format (default: 'standard').
-     * 'problem' emits RFC 9457 Problem Details bodies from `error()`.
+     * Error output format for the framework adapters (default: 'standard').
+     * 'problem' makes the adapters emit RFC 9457 `application/problem+json`.
+     * It does not change `kit.error()` (always the envelope); use `kit.problem()`
+     * for a Problem Details body directly.
      */
     format?: ResponseFormat;
     /** Key casing of generated responses (default: 'snake') */
@@ -168,6 +178,20 @@ export interface KitConfig {
      * Strongly discouraged in production.
      */
     exposeServerErrors?: boolean;
+    /**
+     * Fallback source for the correlation id when a `requestId` is not passed
+     * explicitly to `success()` / `error()` / `problem()`. Wire it to an
+     * `AsyncLocalStorage` store (see `http-response-kit/context`) to propagate
+     * the id automatically across every response — success and error alike.
+     */
+    requestIdProvider?: () => string | undefined;
+    /**
+     * Notified when a user hook (`messageResolver`, `metadataSanitizer`,
+     * `responseTransformer`, `requestIdProvider`) throws. The kit always falls
+     * back to safe default behavior; this hook only surfaces the failure for
+     * logging. It must not throw (a throwing reporter is swallowed).
+     */
+    onHookError?: (hook: string, error: unknown) => void;
 }
 
 /**

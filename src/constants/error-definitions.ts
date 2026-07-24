@@ -315,14 +315,18 @@ Object.freeze(HttpErrorDefinitions);
  * Get error definition by status code
  */
 export function getErrorDefinition(code: number): HttpErrorInfo {
-    if (code < 400 || code > 599) {
+    // `Number.isInteger` rejects NaN, Infinity, -Infinity and non-integers in one
+    // check — `NaN < 400` and `NaN > 599` are both false, so a bare range check
+    // would let NaN through and later crash `res.status(NaN)`.
+    if (!Number.isInteger(code) || code < 400 || code > 599) {
         throw new RangeError(
-            `Invalid HTTP error code: ${code}. Must be between 400 and 599.`
+            `Invalid HTTP error code: ${String(code)}. Must be an integer between 400 and 599.`
         );
     }
 
-    if (HttpErrorDefinitions[code]) {
-        return HttpErrorDefinitions[code];
+    const defined = HttpErrorDefinitions[code];
+    if (defined) {
+        return defined;
     }
 
     // Preserve the original code but provide a generic fallback definition

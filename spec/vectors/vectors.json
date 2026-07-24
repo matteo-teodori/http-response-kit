@@ -1,0 +1,616 @@
+{
+  "spec_version": "1.1",
+  "description": "Conformance vectors for http-response-kit spec v1. An implementation conforms if, given each case config+input, it produces exactly `expected` (deep equality). Timestamps are disabled for determinism.",
+  "generated_from": "http-response-kit (TypeScript reference implementation)",
+  "cases": [
+    {
+      "name": "error-404-default",
+      "description": "Default message comes from the status definition",
+      "method": "error",
+      "config": {},
+      "input": {
+        "status": 404
+      },
+      "expected": {
+        "success": false,
+        "status_code": 404,
+        "error": {
+          "type": "not_found",
+          "title": "Not Found",
+          "message": "The requested resource could not be found.",
+          "details": "The requested resource could not be found."
+        }
+      }
+    },
+    {
+      "name": "error-404-custom-message",
+      "description": "Explicit message on exposable 4xx wins",
+      "method": "error",
+      "config": {},
+      "input": {
+        "status": 404,
+        "options": {
+          "message": "User 42 not found"
+        }
+      },
+      "expected": {
+        "success": false,
+        "status_code": 404,
+        "error": {
+          "type": "not_found",
+          "title": "Not Found",
+          "message": "User 42 not found",
+          "details": "The requested resource could not be found."
+        }
+      }
+    },
+    {
+      "name": "error-500-sanitized",
+      "description": "5xx explicit message is never exposed by default",
+      "method": "error",
+      "config": {},
+      "input": {
+        "status": 500,
+        "options": {
+          "message": "db password invalid"
+        }
+      },
+      "expected": {
+        "success": false,
+        "status_code": 500,
+        "error": {
+          "type": "internal_server_error",
+          "title": "Internal Server Error",
+          "message": "An unexpected error occurred on the server.",
+          "details": "An unexpected error occurred on the server."
+        }
+      }
+    },
+    {
+      "name": "error-500-expose-optin",
+      "description": "expose:true on a 5xx is an explicit opt-in",
+      "method": "error",
+      "config": {},
+      "input": {
+        "status": 503,
+        "options": {
+          "message": "Maintenance until 17:00 UTC",
+          "expose": true,
+          "retryAfter": 600
+        }
+      },
+      "expected": {
+        "success": false,
+        "status_code": 503,
+        "error": {
+          "type": "service_unavailable",
+          "title": "Service Unavailable",
+          "message": "Maintenance until 17:00 UTC",
+          "details": "The server is currently unable to handle the request due to temporary overloading or maintenance."
+        },
+        "retry_after": 600
+      }
+    },
+    {
+      "name": "error-5xx-metadata-hidden",
+      "description": "metadata is omitted on non-exposable errors",
+      "method": "error",
+      "config": {},
+      "input": {
+        "status": 500,
+        "options": {
+          "message": "x",
+          "metadata": {
+            "internal": "stuff"
+          }
+        }
+      },
+      "expected": {
+        "success": false,
+        "status_code": 500,
+        "error": {
+          "type": "internal_server_error",
+          "title": "Internal Server Error",
+          "message": "An unexpected error occurred on the server.",
+          "details": "An unexpected error occurred on the server."
+        }
+      }
+    },
+    {
+      "name": "error-custom-default-message",
+      "description": "customMessages act as per-status default at serialization",
+      "method": "error",
+      "config": {
+        "customMessages": {
+          "404": "Nothing to see here."
+        }
+      },
+      "input": {
+        "status": 404
+      },
+      "expected": {
+        "success": false,
+        "status_code": 404,
+        "error": {
+          "type": "not_found",
+          "title": "Not Found",
+          "message": "Nothing to see here.",
+          "details": "The requested resource could not be found."
+        }
+      }
+    },
+    {
+      "name": "error-custom-message-5xx-sanitized",
+      "description": "customMessages replace the generic text for sanitized 5xx",
+      "method": "error",
+      "config": {
+        "customMessages": {
+          "500": "Branded generic error"
+        }
+      },
+      "input": {
+        "status": 500,
+        "options": {
+          "message": "secret"
+        }
+      },
+      "expected": {
+        "success": false,
+        "status_code": 500,
+        "error": {
+          "type": "internal_server_error",
+          "title": "Internal Server Error",
+          "message": "Branded generic error",
+          "details": "An unexpected error occurred on the server."
+        }
+      }
+    },
+    {
+      "name": "error-validation-422",
+      "description": "Structured validation issues in error.errors",
+      "method": "error",
+      "config": {},
+      "input": {
+        "validation": [
+          {
+            "field": "email",
+            "message": "Invalid email format",
+            "code": "invalid_format"
+          }
+        ]
+      },
+      "expected": {
+        "success": false,
+        "status_code": 422,
+        "error": {
+          "type": "unprocessable_entity",
+          "title": "Unprocessable Entity",
+          "message": "Validation failed",
+          "code": "VALIDATION_FAILED",
+          "details": "The request was well-formed but was unable to be followed due to semantic errors.",
+          "errors": [
+            {
+              "field": "email",
+              "message": "Invalid email format",
+              "code": "invalid_format"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "error-domain-code",
+      "description": "Catalog errorCode serialized as error.code",
+      "method": "error",
+      "config": {},
+      "input": {
+        "catalog": {
+          "USER_NOT_FOUND": {
+            "status": 404,
+            "message": "User does not exist"
+          }
+        }
+      },
+      "expected": {
+        "success": false,
+        "status_code": 404,
+        "error": {
+          "type": "not_found",
+          "title": "Not Found",
+          "message": "User does not exist",
+          "code": "USER_NOT_FOUND",
+          "details": "The requested resource could not be found."
+        }
+      }
+    },
+    {
+      "name": "error-retry-after",
+      "description": "429 with retry_after in body",
+      "method": "error",
+      "config": {},
+      "input": {
+        "status": 429,
+        "options": {
+          "message": "Slow down",
+          "retryAfter": 30
+        }
+      },
+      "expected": {
+        "success": false,
+        "status_code": 429,
+        "error": {
+          "type": "too_many_requests",
+          "title": "Too Many Requests",
+          "message": "Slow down",
+          "details": "The user has sent too many requests in a given amount of time."
+        },
+        "retry_after": 30
+      }
+    },
+    {
+      "name": "error-request-id",
+      "description": "request_id echoed in error responses",
+      "method": "error",
+      "config": {},
+      "input": {
+        "status": 404,
+        "requestId": "req-123"
+      },
+      "expected": {
+        "success": false,
+        "status_code": 404,
+        "error": {
+          "type": "not_found",
+          "title": "Not Found",
+          "message": "The requested resource could not be found.",
+          "details": "The requested resource could not be found."
+        },
+        "request_id": "req-123"
+      }
+    },
+    {
+      "name": "system-econnrefused",
+      "description": "ECONNREFUSED maps to 502 with code preserved, never exposed",
+      "method": "fromError",
+      "config": {},
+      "input": {
+        "errorMessage": "connect ECONNREFUSED 10.0.0.5:5432",
+        "systemCode": "ECONNREFUSED"
+      },
+      "expected": {
+        "success": false,
+        "status_code": 502,
+        "error": {
+          "type": "bad_gateway",
+          "title": "Bad Gateway",
+          "message": "The server received an invalid response from an upstream server.",
+          "code": "ECONNREFUSED",
+          "details": "The server received an invalid response from an upstream server."
+        }
+      }
+    },
+    {
+      "name": "system-etimedout-nested-cause",
+      "description": "Codes are found through nested causes (fetch failed)",
+      "method": "fromError",
+      "config": {},
+      "input": {
+        "errorMessage": "fetch failed",
+        "causeMessage": "connect ETIMEDOUT 10.0.0.9:443",
+        "causeSystemCode": "ETIMEDOUT"
+      },
+      "expected": {
+        "success": false,
+        "status_code": 504,
+        "error": {
+          "type": "gateway_timeout",
+          "title": "Gateway Timeout",
+          "message": "The server did not receive a timely response from an upstream server.",
+          "code": "ETIMEDOUT",
+          "details": "The server did not receive a timely response from an upstream server."
+        }
+      }
+    },
+    {
+      "name": "problem-404-full",
+      "description": "Problem Details with typeBase, instance, requestId and code",
+      "method": "problem",
+      "config": {
+        "problemTypeBase": "https://errors.example.com"
+      },
+      "input": {
+        "status": 404,
+        "options": {
+          "message": "User not found",
+          "errorCode": "USER_NOT_FOUND"
+        },
+        "problemOptions": {
+          "instance": "/users/42",
+          "requestId": "req-9"
+        }
+      },
+      "expected": {
+        "type": "https://errors.example.com/not_found",
+        "title": "Not Found",
+        "status": 404,
+        "detail": "User not found",
+        "instance": "/users/42",
+        "code": "USER_NOT_FOUND",
+        "request_id": "req-9"
+      }
+    },
+    {
+      "name": "problem-500-sanitized",
+      "description": "Problem detail is sanitized for non-exposable errors",
+      "method": "problem",
+      "config": {},
+      "input": {
+        "errorMessage": "secret db string"
+      },
+      "expected": {
+        "type": "about:blank",
+        "title": "Internal Server Error",
+        "status": 500,
+        "detail": "An unexpected error occurred on the server."
+      }
+    },
+    {
+      "name": "problem-validation",
+      "description": "Validation issues as RFC 9457 errors extension",
+      "method": "problem",
+      "config": {},
+      "input": {
+        "validation": [
+          {
+            "field": "age",
+            "message": "Must be >= 18",
+            "code": "too_small"
+          }
+        ]
+      },
+      "expected": {
+        "type": "about:blank",
+        "title": "Unprocessable Entity",
+        "status": 422,
+        "detail": "Validation failed",
+        "code": "VALIDATION_FAILED",
+        "errors": [
+          {
+            "field": "age",
+            "message": "Must be >= 18",
+            "code": "too_small"
+          }
+        ]
+      }
+    },
+    {
+      "name": "success-ok",
+      "description": "Plain 200 with data",
+      "method": "success",
+      "config": {},
+      "input": {
+        "data": {
+          "id": 1,
+          "name": "John"
+        },
+        "message": "User retrieved"
+      },
+      "expected": {
+        "success": true,
+        "status_code": 200,
+        "data": {
+          "id": 1,
+          "name": "John"
+        },
+        "message": "User retrieved"
+      }
+    },
+    {
+      "name": "success-created",
+      "description": "201 Created",
+      "method": "success",
+      "config": {},
+      "input": {
+        "data": {
+          "id": 2
+        },
+        "statusCode": 201
+      },
+      "expected": {
+        "success": true,
+        "status_code": 201,
+        "data": {
+          "id": 2
+        }
+      }
+    },
+    {
+      "name": "success-204-no-data",
+      "description": "No-body statuses omit data",
+      "method": "success",
+      "config": {},
+      "input": {
+        "statusCode": 204,
+        "data": "must be excluded"
+      },
+      "expected": {
+        "success": true,
+        "status_code": 204
+      }
+    },
+    {
+      "name": "success-request-id",
+      "description": "request_id echoed in success responses",
+      "method": "success",
+      "config": {},
+      "input": {
+        "data": 1,
+        "requestId": "req-7"
+      },
+      "expected": {
+        "success": true,
+        "status_code": 200,
+        "request_id": "req-7",
+        "data": 1
+      }
+    },
+    {
+      "name": "paginated-offset",
+      "description": "Offset pagination metadata",
+      "method": "paginated",
+      "config": {},
+      "input": {
+        "data": [
+          1,
+          2,
+          3
+        ],
+        "page": 2,
+        "limit": 3,
+        "total": 10
+      },
+      "expected": {
+        "success": true,
+        "status_code": 200,
+        "data": [
+          1,
+          2,
+          3
+        ],
+        "metadata": {
+          "pagination": {
+            "page": 2,
+            "limit": 3,
+            "total": 10,
+            "total_pages": 4,
+            "has_next": true,
+            "has_prev": true
+          }
+        }
+      }
+    },
+    {
+      "name": "paginated-offset-zero-limit",
+      "description": "limit < 1 clamped to 1",
+      "method": "paginated",
+      "config": {},
+      "input": {
+        "data": [
+          1
+        ],
+        "page": 1,
+        "limit": 0,
+        "total": 10
+      },
+      "expected": {
+        "success": true,
+        "status_code": 200,
+        "data": [
+          1
+        ],
+        "metadata": {
+          "pagination": {
+            "page": 1,
+            "limit": 1,
+            "total": 10,
+            "total_pages": 10,
+            "has_next": true,
+            "has_prev": false
+          }
+        }
+      }
+    },
+    {
+      "name": "paginated-offset-negative-page",
+      "description": "page < 1 clamped to 1 and total < 0 clamped to 0 (spec v1.1)",
+      "method": "paginated",
+      "config": {},
+      "input": {
+        "data": [],
+        "page": -5,
+        "limit": 20,
+        "total": -10
+      },
+      "expected": {
+        "success": true,
+        "status_code": 200,
+        "data": [],
+        "metadata": {
+          "pagination": {
+            "page": 1,
+            "limit": 20,
+            "total": 0,
+            "total_pages": 0,
+            "has_next": false,
+            "has_prev": false
+          }
+        }
+      }
+    },
+    {
+      "name": "paginated-cursor",
+      "description": "Cursor pagination metadata",
+      "method": "paginatedCursor",
+      "config": {},
+      "input": {
+        "data": [
+          1,
+          2
+        ],
+        "nextCursor": "abc",
+        "limit": 2
+      },
+      "expected": {
+        "success": true,
+        "status_code": 200,
+        "data": [
+          1,
+          2
+        ],
+        "metadata": {
+          "pagination": {
+            "has_next": true,
+            "has_prev": false,
+            "next_cursor": "abc",
+            "limit": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "casing-camel",
+      "description": "camelCase output for top-level and pagination keys",
+      "method": "paginated",
+      "config": {
+        "casing": "camel"
+      },
+      "input": {
+        "data": [
+          1,
+          2
+        ],
+        "page": 1,
+        "limit": 2,
+        "total": 4
+      },
+      "expected": {
+        "success": true,
+        "statusCode": 200,
+        "data": [
+          1,
+          2
+        ],
+        "metadata": {
+          "pagination": {
+            "page": 1,
+            "limit": 2,
+            "total": 4,
+            "totalPages": 2,
+            "hasNext": true,
+            "hasPrev": false
+          }
+        }
+      }
+    }
+  ]
+}

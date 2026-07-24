@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { HttpError } from '../src/errors/HttpError';
 import { createResponseKit } from '../src/kit';
-import { errorHandler, notFoundHandler } from '../src/adapters/express';
+import { errorHandler, notFoundHandler, asyncHandler } from '../src/adapters/express';
 import { fastifyErrorHandler, fastifyNotFoundHandler } from '../src/adapters/fastify';
 import { koaErrorHandler } from '../src/adapters/koa';
 import { honoErrorHandler } from '../src/adapters/hono';
@@ -64,22 +64,67 @@ describe('Express adapter', () => {
         expect(res.body.status).toBe(404);
     });
 
+    it('problem:false forces a standard JSON envelope even on a problem-format kit', () => {
+        // Regression guard: body and Content-Type must stay consistent.
+        const problemKit = createResponseKit({ includeTimestamp: false, format: 'problem' });
+        const handler = errorHandler({ kit: problemKit, problem: false });
+        const res = mockExpressRes();
+        handler(HttpError.notFound('Nope'), { headers: {} }, res, vi.fn());
+        expect(res.headers['Content-Type']).toBe('application/json; charset=utf-8');
+        expect(res.body.success).toBe(false); // standard envelope, not a problem body
+        expect(res.body.error.type).toBe('not_found');
+        expect(res.body.status).toBeUndefined(); // no RFC 9457 `status` member
+    });
+
+    it('problem:true forces RFC 9457 even on a standard-format kit', () => {
+        const stdKit = createResponseKit({ includeTimestamp: false });
+        const handler = errorHandler({ kit: stdKit, problem: true });
+        const res = mockExpressRes();
+        handler(HttpError.notFound('Nope'), { headers: {} }, res, vi.fn());
+        expect(res.headers['Content-Type']).toBe(PROBLEM_CONTENT_TYPE);
+        expect(res.body.status).toBe(404);
+    });
+
     it('should call onError hook for logging', () => {
         const onError = vi.fn();
         const handler = errorHandler({ kit, onError });
         handler(new Error('log me'), { headers: { 'x-request-id': 'abc' } }, mockExpressRes(), vi.fn());
         expect(onError).toHaveBeenCalledOnce();
-        expect(onError.mock.calls[0][0].message).toBe('log me');
-        expect(onError.mock.calls[0][1]).toBe('abc');
+        expect(onError.mock.calls[0]![0].message).toBe('log me');
+        expect(onError.mock.calls[0]![1]).toBe('abc');
     });
 
     it('notFoundHandler should forward a 404 HttpError', () => {
         const next = vi.fn();
         notFoundHandler()({ method: 'GET', originalUrl: '/missing' }, mockExpressRes(), next);
-        const forwarded = next.mock.calls[0][0];
+        const forwarded = next.mock.calls[0]![0];
         expect(HttpError.isHttpError(forwarded)).toBe(true);
         expect(forwarded.code).toBe(404);
         expect(forwarded.message).toContain('/missing');
+    });
+
+    it('asyncHandler forwards a rejected promise to next()', async () => {
+        const next = vi.fn();
+        const handler = asyncHandler(async () => {
+            throw HttpError.badRequest('async boom');
+        });
+        handler({ headers: {} }, mockExpressRes(), next);
+        await new Promise((r) => setImmediate(r));
+        expect(next).toHaveBeenCalledOnce();
+        expect(HttpError.isHttpError(next.mock.calls[0]![0])).toBe(true);
+        expect(next.mock.calls[0]![0].code).toBe(400);
+    });
+
+    it('asyncHandler passes through a resolved handler without calling next()', async () => {
+        const next = vi.fn();
+        const res = mockExpressRes();
+        const handler = asyncHandler(async (_req, r) => {
+            (r as typeof res).json({ ok: true });
+        });
+        handler({ headers: {} }, res, next);
+        await new Promise((r) => setImmediate(r));
+        expect(next).not.toHaveBeenCalled();
+        expect(res.body).toEqual({ ok: true });
     });
 });
 
@@ -104,7 +149,7 @@ describe('Fastify adapter', () => {
         expect(reply.body.request_id).toBe('f-1');
     });
 
-    it('should map Fastify AJV validation errors to structured issues', () => {
+    it('should map Fastify AJV validation errors to structured issues (422 by default)', () => {
         const ajvError = {
             statusCode: 400,
             message: "body/email must match format \"email\"",
@@ -112,10 +157,22 @@ describe('Fastify adapter', () => {
         };
         const reply = mockReply();
         fastifyErrorHandler({ kit })(ajvError, { headers: {} }, reply);
-        expect(reply.statusCode).toBe(400);
+        // Aligned with HttpError.validation() so the same condition never yields two statuses
+        expect(reply.statusCode).toBe(422);
         expect(reply.body.error.errors).toEqual([
             { field: 'email', message: 'must match format "email"', code: 'format' },
         ]);
+    });
+
+    it('should honor validationStatus: 400 for AJV errors when configured', () => {
+        const ajvError = {
+            statusCode: 400,
+            message: 'bad',
+            validation: [{ instancePath: '/email', message: 'invalid', keyword: 'format' }],
+        };
+        const reply = mockReply();
+        fastifyErrorHandler({ kit, validationStatus: 400 })(ajvError, { headers: {} }, reply);
+        expect(reply.statusCode).toBe(400);
     });
 
     it('notFound handler should produce a consistent 404', () => {

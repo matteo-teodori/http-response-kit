@@ -84,6 +84,13 @@ export { mapSystemError, SystemErrorStatusMap } from './errors/system-errors';
 export { ResponseKit, createResponseKit, isSuccessResponse, isErrorResponse } from './kit';
 
 // ============================================================================
+// Bound API (kit + adapters, impossible to misconfigure)
+// ============================================================================
+
+export { createApi } from './api';
+export type { BoundApi, BoundAdapterOptions } from './api';
+
+// ============================================================================
 // RFC 9457 Problem Details
 // ============================================================================
 

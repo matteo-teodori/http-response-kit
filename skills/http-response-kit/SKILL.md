@@ -58,30 +58,51 @@ objects break the project contract.
 ## Wiring a framework (do this once, at app setup)
 
 Each adapter handles: consistent body, error headers (Retry-After...),
-`x-request-id` echo, RFC 9457 mode. Pass the project kit via `{ kit: api }`.
+`x-request-id` echo, RFC 9457 mode.
+
+**Preferred: `createApi()`** — it binds the kit to every adapter, so success and
+error output can never diverge in casing/format (a common bug when the kit is
+configured but not passed to the adapter):
 
 ```typescript
-// Express - register AFTER all routes
-import { errorHandler, notFoundHandler } from 'http-response-kit/express';
-app.use(notFoundHandler());
-app.use(errorHandler({ kit: api, onError: (err, id) => logger.error({ err, requestId: id }) }));
+// src/lib/api.ts
+import { createApi } from 'http-response-kit';
+export const { kit, express, fastify, koa, hono } = createApi({ /* format, casing, ... */ });
 
-// Fastify (also auto-maps AJV validation errors)
-import { fastifyErrorHandler, fastifyNotFoundHandler } from 'http-response-kit/fastify';
-app.setErrorHandler(fastifyErrorHandler({ kit: api }));
-app.setNotFoundHandler(fastifyNotFoundHandler({ kit: api }));
+// Express - register AFTER all routes
+app.use(express.notFoundHandler());
+app.use(express.errorHandler({ onError: (err, id) => logger.error({ err, requestId: id }) }));
+
+// Fastify (also auto-maps AJV validation errors -> 422 by default; validationStatus: 400 to override)
+fastifyApp.setErrorHandler(fastify.errorHandler());
+fastifyApp.setNotFoundHandler(fastify.notFoundHandler());
 
 // Koa - register FIRST
-import { koaErrorHandler } from 'http-response-kit/koa';
-app.use(koaErrorHandler({ kit: api }));
+koaApp.use(koa.errorHandler());
 
 // Hono
-import { honoErrorHandler } from 'http-response-kit/hono';
-app.onError(honoErrorHandler({ kit: api }));
+honoApp.onError(hono.errorHandler());
+```
+
+If you import an adapter from its subpath instead, **always pass `{ kit }`**:
+`errorHandler({ kit, onError })`. Never call `errorHandler()` with no kit when a
+configured kit exists.
+
+**Express 4 async routes:** wrap them with `asyncHandler` from
+`http-response-kit/express` (a rejected promise otherwise crashes the process;
+Express 5 doesn't need it):
+
+```typescript
+import { asyncHandler } from 'http-response-kit/express';
+app.get('/x', asyncHandler(async (req, res) => { /* throw HttpError.* freely */ }));
 ```
 
 Inside handlers, after wiring: just `throw` (or `next(err)` in Express) - never
 format error responses inline.
+
+For automatic `request_id` propagation without threading it through every call,
+wire `requestIdProvider` to the `http-response-kit/context` AsyncLocalStorage
+store (see README).
 
 ## RFC 9457 (application/problem+json)
 

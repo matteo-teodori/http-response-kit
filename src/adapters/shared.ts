@@ -23,6 +23,13 @@ export interface AdapterOptions {
     includeStack?: boolean;
     /** Force RFC 9457 output regardless of kit `format` config */
     problem?: boolean;
+    /**
+     * HTTP status used when mapping a framework's schema-validation error
+     * (e.g. Fastify/AJV) to a structured validation error. Defaults to `422`,
+     * matching `HttpError.validation()`, so the same semantic condition always
+     * yields the same status. Set to `400` for the traditional Bad Request.
+     */
+    validationStatus?: 400 | 422;
 }
 
 /** Normalized payload ready to be sent by any framework */
@@ -61,6 +68,8 @@ export function buildErrorPayload(
         };
     }
 
+    // `kit.error()` is always the standard envelope, so body and Content-Type
+    // stay consistent here (this is the `problem: false` / standard-format path).
     return {
         status: error.code,
         headers,

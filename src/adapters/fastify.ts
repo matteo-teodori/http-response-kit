@@ -51,7 +51,10 @@ export function fastifyErrorHandler(options: AdapterOptions = {}) {
     return (error: unknown, request: FastifyLikeRequest, reply: FastifyLikeReply): void => {
         let normalized: unknown = error;
 
-        // Map Fastify/AJV schema validation errors to structured validation issues
+        // Map Fastify/AJV schema validation errors to structured validation issues.
+        // Default to 422 (same as HttpError.validation) so schema failures and
+        // hand-thrown validation errors never disagree on status; override with
+        // `validationStatus: 400` for the traditional Bad Request.
         const maybeValidation = error as FastifyValidationError;
         if (!HttpError.isHttpError(error) && Array.isArray(maybeValidation?.validation)) {
             normalized = HttpError.validation(
@@ -61,7 +64,7 @@ export function fastifyErrorHandler(options: AdapterOptions = {}) {
                     code: issue.keyword,
                 })),
                 maybeValidation.message ?? 'Validation failed',
-                maybeValidation.statusCode === 400 ? 400 : 422
+                options.validationStatus ?? 422
             );
         }
 

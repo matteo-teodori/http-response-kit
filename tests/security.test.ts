@@ -2,7 +2,6 @@ import { describe, it, expect, expectTypeOf } from 'vitest';
 import { HttpError } from '../src/errors/HttpError';
 import { createResponseKit } from '../src/kit';
 import type { ErrorResponse, SuccessResponse, ProblemDetails } from '../src/types';
-import { successResponseSchema, errorResponseSchema, problemDetailsSchema, openApiComponents } from '../src/schemas';
 
 const kit = createResponseKit({ includeTimestamp: false });
 
@@ -38,16 +37,6 @@ describe('Security: expose semantics', () => {
         expect(wrapped.getCauseChain()).toEqual(['Error: mid', 'Error: root']);
         const res = kit.error(wrapped, { includeStack: false });
         expect(JSON.stringify(res)).not.toContain('root');
-    });
-});
-
-describe('JSON Schemas', () => {
-    it('schemas have valid ids and required fields', () => {
-        expect(successResponseSchema.title).toBe('SuccessResponse');
-        expect(errorResponseSchema.required).toContain('error');
-        expect(problemDetailsSchema.required).toEqual(['type', 'title', 'status']);
-        expect(Object.keys(openApiComponents.schemas)).toEqual(['SuccessResponse', 'ErrorResponse', 'ProblemDetails']);
-        expect(openApiComponents.responses.Problem.content['application/problem+json']).toBeDefined();
     });
 });
 

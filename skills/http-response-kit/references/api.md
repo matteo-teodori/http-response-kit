@@ -14,8 +14,18 @@
 | `messageResolver` | - | `(err) => string \| undefined` - i18n/override hook |
 | `metadataSanitizer` | - | strip PII/secrets from metadata before output |
 | `responseTransformer` | - | last-mile shape transformer |
+| `requestIdProvider` | - | `() => string \| undefined` fallback request id (e.g. AsyncLocalStorage) |
+| `onHookError` | - | `(hook, err) => void` notified when a user hook throws (kit falls back safely) |
 
 `kit.configure(partial)` merges into the instance. `kit.getConfig()` returns a snapshot.
+User hooks are resilient: if one throws, the kit falls back to defaults (never a 500) and calls `onHookError`.
+`kit.error()` always returns the standard envelope; `kit.problem()` always returns RFC 9457. `format: 'problem'` only selects which one the adapters emit (it does not change `error()`'s shape).
+
+## createApi(config)
+
+`createApi(config)` returns `{ kit, express, fastify, koa, hono }` with every adapter
+pre-bound to `kit` (impossible to misconfigure casing/format). Prefer it over importing
+adapters separately. `BoundApi`/`BoundAdapterOptions` are exported types.
 
 ## Kit methods
 
@@ -65,15 +75,23 @@ EAI_AGAIN/EMFILE/ENOBUFS -> 503. Codes are found through the `cause` chain
 
 ## Adapters (subpath exports, zero deps)
 
-Common options: `{ kit?, requestIdHeader? ('x-request-id'), onError?(err, requestId), includeStack?, problem? }`
+Common options: `{ kit?, requestIdHeader? ('x-request-id'), onError?(err, requestId), includeStack?, problem?, validationStatus? }`
+(`validationStatus`: `400 | 422`, default `422`, for framework schema-validation errors.)
 
-- `http-response-kit/express`: `errorHandler(opts)` (register last), `notFoundHandler(message?)`
-- `http-response-kit/fastify`: `fastifyErrorHandler(opts)` (maps AJV `error.validation` to issues), `fastifyNotFoundHandler(opts)`
+- `http-response-kit/express`: `errorHandler(opts)` (register last), `notFoundHandler(message?)`, `asyncHandler(fn)` (Express 4 async safety)
+- `http-response-kit/fastify`: `fastifyErrorHandler(opts)` (maps AJV `error.validation` to issues, default 422), `fastifyNotFoundHandler(opts)`
 - `http-response-kit/koa`: `koaErrorHandler(opts)` (register first)
 - `http-response-kit/hono`: `honoErrorHandler(opts)` (for `app.onError`)
 
 ## Schemas
 
 `http-response-kit/schemas`: `successResponseSchema`, `errorResponseSchema`,
-`problemDetailsSchema` (JSON Schema 2020-12), `openApiComponents` (OpenAPI 3.1
-`components` fragment with schemas + reusable responses).
+`problemDetailsSchema` (JSON Schema 2020-12, snake_case), `openApiComponents` (OpenAPI 3.1
+`components` fragment). `schemas({ casing })` generates the set matching a kit's casing
+(use `{ casing: 'camel' }` when the kit is camelCase, else the snake output violates the schema).
+
+## Context
+
+`http-response-kit/context`: `createRequestContext()` → `{ run(ctx, fn), get(), getRequestId() }`
+(AsyncLocalStorage). Wire `getRequestId` into a kit's `requestIdProvider` for automatic
+`request_id` on every success/error response.

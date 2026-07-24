@@ -28,6 +28,49 @@ function snakeToCamel(key: string): string {
     return key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
+/** Floor to an integer and clamp to a minimum; non-finite inputs fall back to `min`. */
+function clampInt(value: number, min: number): number {
+    return Number.isFinite(value) ? Math.max(min, Math.floor(value)) : min;
+}
+
+/** Deep-clone plain objects/arrays; pass non-plain values (functions, class
+ * instances, Dates...) through by reference. Never throws. */
+function deepClonePlain<T>(value: T): T {
+    if (Array.isArray(value)) {
+        return value.map((v) => deepClonePlain(v)) as unknown as T;
+    }
+    if (value !== null && typeof value === 'object') {
+        const proto = Object.getPrototypeOf(value);
+        if (proto === Object.prototype || proto === null) {
+            const out: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(value)) {
+                out[k] = deepClonePlain(v);
+            }
+            return out as T;
+        }
+    }
+    return value;
+}
+
+/**
+ * Deep-clone a response before handing it to a user `responseTransformer`, so a
+ * transformer that mutates in place and then throws cannot corrupt or leak the
+ * fallback — including the nested `error` object (whose sanitized 5xx message
+ * must never be overwritten) and `data`/`metadata`.
+ *
+ * `structuredClone` handles Dates/Maps/Sets but throws on non-cloneable payloads
+ * (functions, class instances, ORM documents — a common `data` shape), so the
+ * fallback is a real DEEP clone of the plain envelope structure, not a shallow
+ * copy that would leave nested objects shared by reference.
+ */
+function cloneForTransform<R extends Record<string, unknown>>(response: R): R {
+    try {
+        return structuredClone(response);
+    } catch {
+        return deepClonePlain(response);
+    }
+}
+
 /** Shallow-convert response keys to camelCase (plus pagination metadata) */
 function camelizeResponse<R extends Record<string, unknown>>(response: R): R {
     const out: Record<string, unknown> = {};
@@ -95,9 +138,38 @@ export class ResponseKit {
         let out: R = this.config.casing === 'camel' ? camelizeResponse(response) : response;
         const transformer = this.config.responseTransformer;
         if (transformer) {
-            out = transformer(out) as R;
+            // A throwing user transformer must never corrupt the response shape.
+            // Hand it a DEEP clone so an in-place mutation followed by a throw
+            // cannot delete core fields or leak partial data (e.g. overwrite a
+            // sanitized 5xx message, or mutate nested `error`/`data`) into the
+            // fallback: on throw, `out` is still the pristine pre-transform response.
+            try {
+                out = transformer(cloneForTransform(out)) as R;
+            } catch (err) {
+                this.reportHookError('responseTransformer', err);
+            }
         }
         return out;
+    }
+
+    /** Report a user-hook failure without ever propagating it. */
+    private reportHookError(hook: string, err: unknown): void {
+        try {
+            this.config.onHookError?.(hook, err);
+        } catch {
+            /* a throwing error reporter is swallowed on purpose */
+        }
+    }
+
+    /** The correlation id to use: explicit value first, then the configured provider. */
+    private resolveRequestId(explicit: string | undefined): string | undefined {
+        if (explicit !== undefined) return explicit;
+        try {
+            return this.config.requestIdProvider?.();
+        } catch (err) {
+            this.reportHookError('requestIdProvider', err);
+            return undefined;
+        }
     }
 
     /**
@@ -107,7 +179,14 @@ export class ResponseKit {
      * > customMessages[code] > generic status description.
      */
     private resolveMessage(error: HttpError, exposed: boolean): string {
-        const resolved = this.config.messageResolver?.(error);
+        let resolved: string | undefined;
+        try {
+            resolved = this.config.messageResolver?.(error);
+        } catch (err) {
+            // A throwing i18n/resolver hook must not turn a 404 into a 500:
+            // fall through to the default message resolution.
+            this.reportHookError('messageResolver', err);
+        }
         if (resolved !== undefined) return resolved;
 
         const customDefault = this.config.customMessages?.[error.code];
@@ -136,8 +215,9 @@ export class ResponseKit {
             response.timestamp = new Date().toISOString();
         }
 
-        if (requestId) {
-            response.request_id = requestId;
+        const resolvedRequestId = this.resolveRequestId(requestId);
+        if (resolvedRequestId) {
+            response.request_id = resolvedRequestId;
         }
 
         // Don't include data for 204 No Content, 205 Reset Content, and 304 Not Modified
@@ -167,7 +247,14 @@ export class ResponseKit {
     // ========================================================================
 
     /**
-     * Format an error response.
+     * Format an error response as the standard envelope.
+     *
+     * `error()` always produces the proprietary envelope (typed `ErrorResponse`);
+     * `problem()` always produces RFC 9457 Problem Details. The kit's `format`
+     * option selects which one the framework adapters emit — it deliberately does
+     * NOT change `error()`'s shape, so the return type is stable and sound (a
+     * runtime-computed format cannot silently make `.error` undefined). For RFC
+     * 9457 output call `problem()`, or let an adapter honor `format: 'problem'`.
      *
      * Security: when the error is not exposable (5xx by default), the outgoing
      * message falls back to the generic status description (or the configured
@@ -177,6 +264,7 @@ export class ResponseKit {
     error(error: HttpError, config: ErrorResponseConfig = {}): ErrorResponse {
         const { includeStack, additionalFields, requestId } = config;
         const cfg = this.config;
+        const resolvedRequestId = this.resolveRequestId(requestId);
 
         const exposed =
             config.expose ??
@@ -196,8 +284,8 @@ export class ResponseKit {
             response.timestamp = new Date().toISOString();
         }
 
-        if (requestId) {
-            response.request_id = requestId;
+        if (resolvedRequestId) {
+            response.request_id = resolvedRequestId;
         }
 
         // Stable application-level error code
@@ -224,15 +312,26 @@ export class ResponseKit {
             }
         }
 
-        // Include retry-after if present
-        if (error.retryAfter) {
+        // Include retry-after (seconds) in the body. A `Date` retryAfter is
+        // carried by the `Retry-After` header only (see HttpError.getHeaders).
+        if (typeof error.retryAfter === 'number') {
             response.retry_after = error.retryAfter;
         }
 
         // Include metadata only when the error is exposable (may contain internals)
         if (error.metadata && exposed) {
-            const sanitized = cfg.metadataSanitizer ? cfg.metadataSanitizer(error.metadata) : error.metadata;
-            if (Object.keys(sanitized).length > 0) {
+            let sanitized: Record<string, unknown> | undefined = error.metadata;
+            if (cfg.metadataSanitizer) {
+                try {
+                    sanitized = cfg.metadataSanitizer(error.metadata);
+                } catch (err) {
+                    // A throwing sanitizer must fail closed: omit metadata rather
+                    // than risk leaking un-sanitized internals.
+                    this.reportHookError('metadataSanitizer', err);
+                    sanitized = undefined;
+                }
+            }
+            if (sanitized && Object.keys(sanitized).length > 0) {
                 response.metadata = sanitized;
             }
         }
@@ -260,10 +359,18 @@ export class ResponseKit {
     problem(error: unknown, options: ProblemOptions = {}): ProblemDetails {
         const httpError = HttpError.fromError(error);
         const exposed = options.expose ?? httpError.expose;
-        const problem = httpError.toProblemDetails({
-            typeBase: options.typeBase ?? this.config.problemTypeBase,
-            ...options,
-        });
+
+        const problemOptions: ProblemOptions = { ...options };
+        const typeBase = options.typeBase ?? this.config.problemTypeBase;
+        if (typeBase !== undefined) {
+            problemOptions.typeBase = typeBase;
+        }
+        const requestId = this.resolveRequestId(options.requestId);
+        if (requestId !== undefined) {
+            problemOptions.requestId = requestId;
+        }
+
+        const problem = httpError.toProblemDetails(problemOptions);
         problem.detail = this.resolveMessage(httpError, exposed);
         return problem;
     }
@@ -306,21 +413,33 @@ export class ResponseKit {
     // Pagination
     // ========================================================================
 
-    /** Create an offset-based paginated success response */
+    /**
+     * Create an offset-based paginated success response.
+     *
+     * Inputs are normalized uniformly so a hostile or malformed value can never
+     * reach the client contract: `page` clamps to a positive integer (≥ 1),
+     * `limit` to ≥ 1 (avoids division by zero), `total` to a non-negative
+     * integer. Non-integers are floored. This mirrors the spec's clamping policy.
+     */
     paginated<T = unknown>(data: T[], pagination: PaginationInput, message?: string): SuccessResponse<T[]> {
-        const effectiveLimit = pagination.limit > 0 ? pagination.limit : 1;
-        const totalPages = pagination.totalPages ?? Math.ceil(pagination.total / effectiveLimit);
+        const effectiveLimit = clampInt(pagination.limit, 1);
+        const effectivePage = clampInt(pagination.page, 1);
+        const effectiveTotal = clampInt(pagination.total, 0);
+        const totalPages =
+            pagination.totalPages !== undefined
+                ? clampInt(pagination.totalPages, 0)
+                : Math.ceil(effectiveTotal / effectiveLimit);
         return this.success<T[]>({
             data,
             message,
             metadata: {
                 pagination: {
-                    page: pagination.page,
+                    page: effectivePage,
                     limit: effectiveLimit,
-                    total: pagination.total,
+                    total: effectiveTotal,
                     total_pages: totalPages,
-                    has_next: pagination.page < totalPages,
-                    has_prev: pagination.page > 1,
+                    has_next: effectivePage < totalPages,
+                    has_prev: effectivePage > 1,
                 },
             },
         });

@@ -8,6 +8,13 @@ export default defineConfig({
             provider: 'v8',
             include: ['src/**/*.ts'],
             reporter: ['text', 'lcov'],
+            // Blocking thresholds: a coverage drop fails CI.
+            thresholds: {
+                lines: 90,
+                functions: 90,
+                statements: 90,
+                branches: 88,
+            },
         },
     },
 });

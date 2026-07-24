@@ -32,7 +32,22 @@ jobs:
       - run: npm run lint
       - run: npm run test:coverage
       - run: npm run build
-      - name: Verify package exports
-        run: |
-          node -e "const k = require('./dist/index.js'); if (!k.HttpError || !k.createResponseKit) process.exit(1)"
-          node -e "import('./dist/index.mjs').then(k => { if (!k.HttpError || !k.createResponseKit) process.exit(1) })"
+      # Exercise the COMPILED artifact in real CJS + ESM + mixed mode.
+      # This is what catches the C1/H5 class of defects that src-only tests miss.
+      - run: npm run test:dist
+
+  package:
+    name: Package (types & manifest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # Blocking gates for packaging correctness (H3):
+      # - are-the-types-wrong: no type/runtime resolution mismatch
+      # - publint: manifest / exports sanity
+      - run: npm run check:package

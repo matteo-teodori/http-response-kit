@@ -3,7 +3,9 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-    { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
+    // `tests/dist/**` are plain Node test files (.cjs/.mjs) exercised by
+    // `node --test` against the built artifact — not part of the TS sources.
+    { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'tests/dist/**'] },
     js.configs.recommended,
     ...tseslint.configs.recommended,
     {

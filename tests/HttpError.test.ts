@@ -57,6 +57,58 @@ describe('HttpError', () => {
     });
 
     describe('factory methods', () => {
+        // Every factory maps to exactly one status code.
+        const factories: Array<[() => HttpError, number]> = [
+            [() => HttpError.badRequest(), 400],
+            [() => HttpError.unauthorized(), 401],
+            [() => HttpError.paymentRequired(), 402],
+            [() => HttpError.forbidden(), 403],
+            [() => HttpError.notFound(), 404],
+            [() => HttpError.methodNotAllowed(), 405],
+            [() => HttpError.notAcceptable(), 406],
+            [() => HttpError.proxyAuthenticationRequired(), 407],
+            [() => HttpError.requestTimeout(), 408],
+            [() => HttpError.conflict(), 409],
+            [() => HttpError.gone(), 410],
+            [() => HttpError.lengthRequired(), 411],
+            [() => HttpError.preconditionFailed(), 412],
+            [() => HttpError.payloadTooLarge(), 413],
+            [() => HttpError.uriTooLong(), 414],
+            [() => HttpError.unsupportedMediaType(), 415],
+            [() => HttpError.rangeNotSatisfiable(), 416],
+            [() => HttpError.expectationFailed(), 417],
+            [() => HttpError.imATeapot(), 418],
+            [() => HttpError.misdirectedRequest(), 421],
+            [() => HttpError.unprocessableEntity(), 422],
+            [() => HttpError.locked(), 423],
+            [() => HttpError.failedDependency(), 424],
+            [() => HttpError.tooEarly(), 425],
+            [() => HttpError.upgradeRequired(), 426],
+            [() => HttpError.preconditionRequired(), 428],
+            [() => HttpError.tooManyRequests(), 429],
+            [() => HttpError.requestHeaderFieldsTooLarge(), 431],
+            [() => HttpError.unavailableForLegalReasons(), 451],
+            [() => HttpError.internalServerError(), 500],
+            [() => HttpError.notImplemented(), 501],
+            [() => HttpError.badGateway(), 502],
+            [() => HttpError.serviceUnavailable(), 503],
+            [() => HttpError.gatewayTimeout(), 504],
+            [() => HttpError.httpVersionNotSupported(), 505],
+            [() => HttpError.variantAlsoNegotiates(), 506],
+            [() => HttpError.insufficientStorage(), 507],
+            [() => HttpError.loopDetected(), 508],
+            [() => HttpError.bandwidthLimitExceeded(), 509],
+            [() => HttpError.notExtended(), 510],
+            [() => HttpError.networkAuthenticationRequired(), 511],
+        ];
+
+        it.each(factories)('maps factory #%# to its status code', (make, code) => {
+            const err = make();
+            expect(err.code).toBe(code);
+            expect(HttpError.isHttpError(err)).toBe(true);
+            expect(err.expose).toBe(code < 500);
+        });
+
         it('should create correct 400 error', () => {
             const error = HttpError.badRequest('Invalid params');
             expect(error.code).toBe(HttpClientErrorCode.BAD_REQUEST);

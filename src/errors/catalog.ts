@@ -39,6 +39,7 @@ export function createErrorCatalog<T extends Record<string, CatalogEntry>>(
 
     for (const key of Object.keys(catalog) as Array<keyof T>) {
         const entry = catalog[key];
+        if (entry === undefined) continue;
         factories[key] = (message?: string, options: Omit<HttpErrorOptions, 'errorCode'> = {}) =>
             new HttpError(entry.status, {
                 ...options,
