@@ -121,11 +121,11 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
     "@eslint/js": "10.0.1",
-    "@types/node": "26.1.1",
+    "@types/node": "26.1.2",
     "@vitest/coverage-v8": "4.1.10",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
-    "eslint": "10.7.0",
+    "eslint": "10.8.0",
     "publint": "0.3.22",
     "tsup": "8.5.1",
     "tsx": "4.23.1",
